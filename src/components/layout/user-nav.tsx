@@ -97,13 +97,13 @@ export function UserNav() {
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuGroup>
+          {/* <DropdownMenuGroup>
             <DropdownMenuItem onClick={() => router.push('/dashboard/profile')}>
               Profile
             </DropdownMenuItem>
             <DropdownMenuItem>Settings</DropdownMenuItem>
-          </DropdownMenuGroup>
-          <DropdownMenuSeparator />
+          </DropdownMenuGroup> */}
+          {/* <DropdownMenuSeparator /> */}
           <DropdownMenuItem
             onClick={handleSignOut}
             disabled={isSigningOut}
