@@ -212,7 +212,7 @@ export const CSVImportDialog: React.FC<CSVImportDialogProps> = ({
     if (!file) return;
 
     if (!user?.id) {
-      toast.error('Please login to import pumps');
+      toast.error('Please log in to import pumps');
       return;
     }
 
@@ -221,13 +221,35 @@ export const CSVImportDialog: React.FC<CSVImportDialogProps> = ({
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
+      transformHeader: (header: string) => {
+        // Normalize headers to match expected format
+        const headerMap: { [key: string]: string } = {
+          Brand: 'brand',
+          Model: 'model',
+          KW: 'kw',
+          'Inlet(mm)': 'inlet',
+          'Outlet(mm)': 'outlet',
+          Configuration: 'configuration',
+          Type: 'type',
+          Voltage: 'voltage',
+          Amps: 'amps',
+          Phases: 'phases',
+          MaxTemp: 'max_temp',
+          Public: 'is_public',
+          PvsQ: 'pvsq',
+          NPSHr: 'npshr',
+          MotorPower: 'motor_power'
+        };
+
+        return headerMap[header] || header.toLowerCase();
+      },
       complete: async (results) => {
         try {
           const pumpsToInsert = [];
           const errors: string[] = [];
 
           for (let i = 0; i < results.data.length; i++) {
-            const row = results.data[i] as CSVRow;
+            const row = results.data[i] as any;
 
             // Validate required fields
             if (!row.brand || !row.model) {
@@ -235,7 +257,59 @@ export const CSVImportDialog: React.FC<CSVImportDialogProps> = ({
               continue;
             }
 
-            const pumpData = processPumpData(row);
+            // Helper function to safely parse JSON strings
+            const safeJSONParse = (value: any, fieldName: string): any[] => {
+              if (!value) return [];
+              if (typeof value === 'object') return value;
+              if (typeof value === 'string') {
+                try {
+                  // Remove any extra whitespace and parse
+                  const parsed = JSON.parse(value.trim());
+                  return Array.isArray(parsed) ? parsed : [];
+                } catch (e) {
+                  console.warn(
+                    `Failed to parse ${fieldName} for row ${i + 2}:`,
+                    e
+                  );
+                  return [];
+                }
+              }
+              return [];
+            };
+
+            // Check if row has JSON strings from export (PvsQ, NPSHr, MotorPower)
+            let pumpData;
+
+            if (
+              typeof row.pvsq === 'string' ||
+              typeof row.npshr === 'string' ||
+              typeof row.motor_power === 'string'
+            ) {
+              // This is from an export - parse JSON strings
+              pumpData = {
+                brand: row.brand?.trim() || '',
+                model: row.model?.trim() || '',
+                kw: Number(row.kw) || 0,
+                inlet: Number(row.inlet) || 0,
+                outlet: Number(row.outlet) || 0,
+                configuration: row.configuration?.trim() || '',
+                type: row.type?.trim() || '',
+                voltage: Number(row.voltage) || 0,
+                amps: Number(row.amps) || 0,
+                phases: Number(row.phases) || 0,
+                max_temp: Number(row.max_temp) || 0,
+                pvsq: safeJSONParse(row.pvsq, 'pvsq'),
+                npshr: safeJSONParse(row.npshr, 'npshr'),
+                efficiency: safeJSONParse(row.efficiency, 'efficiency'),
+                motor_power: safeJSONParse(row.motor_power, 'motor_power'),
+                is_public: false,
+                user_id: user?.id
+              };
+            } else {
+              // This is from template format - process normally
+              pumpData = processPumpData(row as CSVRow);
+            }
+
             pumpsToInsert.push(pumpData);
           }
 

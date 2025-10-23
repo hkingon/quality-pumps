@@ -58,6 +58,10 @@ interface DutyPoint {
   head: number;
   flow: number;
 }
+interface EfficiencyDutyPoint {
+  eff: number;
+  flow: number;
+}
 
 interface MotorPowerPoint {
   kw: number;
@@ -80,6 +84,7 @@ interface Pump {
   max_temp: number;
   pvsq: DutyPoint[];
   npshr: DutyPoint[];
+  efficiency: EfficiencyDutyPoint[];
   motor_power: MotorPowerPoint[];
   design_sld: string | null;
   data_sheet: string | null;
@@ -296,39 +301,59 @@ const PumpLibraryPage: React.FC = () => {
       'Brand',
       'Model',
       'KW',
-      'Inlet (mm)',
-      'Outlet (mm)',
+      'Inlet(mm)',
+      'Outlet(mm)',
       'Configuration',
       'Type',
       'Voltage',
       'Amps',
       'Phases',
-      'Max Temp',
+      'MaxTemp',
       'Public',
       'PvsQ',
       'NPSHr',
-      'Motor Power'
+      'MotorPower',
+      'Efficiency'
     ];
 
-    const rows = currentPumps.map((p) =>
-      [
-        p.brand,
-        p.model,
-        p.kw,
-        p.inlet,
-        p.outlet,
-        p.configuration,
-        p.type,
-        p.voltage,
-        p.amps,
-        p.phases,
-        p.max_temp,
+    // Helper function to escape CSV values
+    const escapeCSVValue = (value: any): string => {
+      if (value === null || value === undefined) return '';
+
+      const stringValue = String(value);
+
+      // If value contains comma, quotes, or newlines, wrap in quotes and escape existing quotes
+      if (
+        stringValue.includes(',') ||
+        stringValue.includes('"') ||
+        stringValue.includes('\n')
+      ) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      }
+
+      return stringValue;
+    };
+
+    const rows = currentPumps.map((p) => {
+      return [
+        escapeCSVValue(p.brand),
+        escapeCSVValue(p.model),
+        escapeCSVValue(p.kw),
+        escapeCSVValue(p.inlet),
+        escapeCSVValue(p.outlet),
+        escapeCSVValue(p.configuration),
+        escapeCSVValue(p.type),
+        escapeCSVValue(p.voltage),
+        escapeCSVValue(p.amps),
+        escapeCSVValue(p.phases),
+        escapeCSVValue(p.max_temp),
         p.is_public ? 'Yes' : 'No',
-        JSON.stringify(p.pvsq),
-        JSON.stringify(p.npshr),
-        JSON.stringify(p.motor_power)
-      ].join(',')
-    );
+        escapeCSVValue(JSON.stringify(p.pvsq)),
+        escapeCSVValue(JSON.stringify(p.npshr)),
+        escapeCSVValue(JSON.stringify(p.motor_power)),
+        escapeCSVValue(JSON.stringify(p.efficiency || []))
+      ].join(',');
+    });
 
     const csvContent = headers.join(',') + '\n' + rows.join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
