@@ -118,21 +118,28 @@ export function SavedPumpsList({
   const [filters, setFilters] = useState<FilterState>(initialFilters);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
 
-  const allPumps = useMemo(
-    () => [
-      ...savedPumps.map((pump) => ({
-        ...pump,
-        isPublic: false,
-        isOwned: true
-      })),
-      ...publicPumps.map((pump) => ({
-        ...pump,
-        isPublic: true,
-        isOwned: false
-      }))
-    ],
-    [savedPumps, publicPumps]
-  );
+  const allPumps = useMemo(() => {
+  // For admins: only show saved pumps (owned), don't mix with public pumps
+  // This prevents showing the same pump twice (once as owned, once as public)
+  const ownedPumps = savedPumps.map((pump) => ({
+    ...pump,
+    isPublic: false,
+    isOwned: true
+  }));
+
+  // For non-admins: show their saved pumps + public pumps from others
+  // Filter out public pumps that are already in their saved pumps
+  const savedPumpIds = new Set(savedPumps.map(p => p.id));
+  const uniquePublicPumps = publicPumps
+    .filter(pump => !savedPumpIds.has(pump.id))
+    .map((pump) => ({
+      ...pump,
+      isPublic: true,
+      isOwned: false
+    }));
+
+  return [...ownedPumps, ...uniquePublicPumps];
+}, [savedPumps, publicPumps]);
 
   useEffect(() => {
     const storedPumpsOnChart = sessionStorage.getItem('pumpsOnChart');

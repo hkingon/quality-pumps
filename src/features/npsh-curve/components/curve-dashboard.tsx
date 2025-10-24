@@ -448,7 +448,9 @@ export function PumpCurveDashboard() {
     const fetchPumps = async () => {
       if (!user?.id) {
         getPumpsFromLocalStorage();
-        await fetchPublicPumps(); // Always fetch public pumps
+        if (!isAdmin) {
+          await fetchPublicPumps(); // Only fetch public for non-admins
+        }
         return;
       }
 
@@ -467,7 +469,7 @@ export function PumpCurveDashboard() {
         getPumpsFromLocalStorage();
       }
 
-      // Fetch public pumps
+      // Only fetch public pumps if NOT admin
       if (!isAdmin) {
         await fetchPublicPumps();
       }
