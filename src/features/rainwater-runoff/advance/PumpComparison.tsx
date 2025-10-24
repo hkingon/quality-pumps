@@ -213,9 +213,7 @@ export default function PumpComparison({
         {detentionVolume !== null && (
           <Card
             className={
-              detentionVolume > 0
-                ? 'border-amber-500 bg-amber-500/10'
-                : 'border-green-500 bg-green-500/10'
+              'border-blue-500 bg-blue-500/10'
             }
           >
             <CardHeader className='pb-2'>
