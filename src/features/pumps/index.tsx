@@ -52,6 +52,8 @@ import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/contexts/auth-context';
 import { toast } from 'sonner';
 import { CSVImportDialog } from '@/components/csv-import-dialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import PumpDetailView from './pump-details-view';
 
 // Define interfaces
 interface DutyPoint {
@@ -103,6 +105,9 @@ const PumpLibraryPage: React.FC = () => {
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('my-pumps');
   const [toggleLoading, setToggleLoading] = useState<string | null>(null);
+
+  const [selectedPumpId, setSelectedPumpId] = useState<string | null>(null);
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
 
   const router = useRouter();
   const { user, profile } = useAuth();
@@ -275,8 +280,12 @@ const PumpLibraryPage: React.FC = () => {
     }
   };
 
+  // const handleViewPump = (pumpId: string): void => {
+  //   router.push(`/dashboard/pumps/${pumpId}`);
+  // };
   const handleViewPump = (pumpId: string): void => {
-    router.push(`/dashboard/pumps/${pumpId}`);
+    setSelectedPumpId(pumpId);
+    setIsDetailsModalOpen(true);
   };
 
   // Navigate to edit pump
@@ -725,6 +734,18 @@ const PumpLibraryPage: React.FC = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
+        <DialogContent className='no-scrollbar max-h-[95vh] max-w-[95vw] min-w-[80vw] overflow-y-auto p-0'>
+          {selectedPumpId && (
+            <PumpDetailView
+              pumpId={selectedPumpId}
+              onClose={() => setIsDetailsModalOpen(false)}
+              isModal={true}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

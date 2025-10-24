@@ -100,7 +100,18 @@ interface Pump {
   is_public: boolean;
 }
 
-const PumpDetailView: React.FC = () => {
+interface PumpDetailViewProps {
+  pumpId?: string;
+  onClose?: () => void;
+  isModal?: boolean;
+}
+
+
+const PumpDetailView: React.FC<PumpDetailViewProps> = ({ 
+  pumpId: propPumpId, 
+  onClose, 
+  isModal = false 
+}) => {
   const [pump, setPump] = useState<Pump | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [deleteLoading, setDeleteLoading] = useState<boolean>(false);
@@ -111,7 +122,7 @@ const PumpDetailView: React.FC = () => {
   const router = useRouter();
   const params = useParams();
   const { user, profile } = useAuth();
-  const pumpId = params.pumpId as string;
+  const pumpId = propPumpId || (params.pumpId as string);
 
   // Fetch pump details
   const fetchPump = async (): Promise<void> => {
@@ -129,7 +140,11 @@ const PumpDetailView: React.FC = () => {
       if (error) {
         if (error.code === 'PGRST116') {
           toast.error('Pump not found or access denied');
-          router.push('/dashboard/pumps');
+          if (isModal && onClose) {
+            onClose();
+          } else {
+            router.push('/dashboard/pumps');
+          }
           return;
         }
         throw error;
@@ -138,7 +153,11 @@ const PumpDetailView: React.FC = () => {
       // Check if user has access to this pump (either owns it or it's public)
       if (data.user_id !== user.id && !data.is_public) {
         toast.error('Access denied - this pump is private');
-        router.push('/dashboard/pumps');
+        if (isModal && onClose) {
+          onClose();
+        } else {
+          router.push('/dashboard/pumps');
+        }
         return;
       }
 
@@ -217,7 +236,11 @@ const PumpDetailView: React.FC = () => {
       if (error) throw error;
 
       toast.success('Pump deleted successfully');
-      router.push('/dashboard/pumps');
+      if (isModal && onClose) {
+        onClose();
+      } else {
+        router.push('/dashboard/pumps');
+      }
     } catch (error) {
       console.error('Error deleting pump:', error);
       toast.error('Failed to delete pump');
@@ -344,9 +367,19 @@ const PumpDetailView: React.FC = () => {
       {/* Header */}
       <div className='flex items-center justify-between'>
         <div className='flex items-center gap-4'>
-          <Button variant='ghost' size='sm' onClick={() => router.back()}>
+          <Button
+            variant='ghost'
+            size='sm'
+            onClick={() => {
+              if (isModal && onClose) {
+                onClose();
+              } else {
+                router.back();
+              }
+            }}
+          >
             <ArrowLeft className='mr-2 h-4 w-4' />
-            Back
+            {isModal ? 'Close' : 'Back'}
           </Button>
           <div>
             <h1 className='text-3xl font-bold'>

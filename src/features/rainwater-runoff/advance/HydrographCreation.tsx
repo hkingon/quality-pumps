@@ -74,8 +74,8 @@ export default function HydrographCreation({
         borderColor: 'rgb(53, 162, 235)',
         backgroundColor: 'rgba(53, 162, 235, 0.5)',
         tension: 0.3,
-        pointRadius: 3,
-        pointHoverRadius: 5
+        pointRadius: 0,
+        pointHoverRadius: 0,
       }
     ]
   };
