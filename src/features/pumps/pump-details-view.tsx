@@ -98,6 +98,8 @@ interface Pump {
   created_at: string;
   updated_at: string;
   is_public: boolean;
+  rpm: number;
+  hz: number;
 }
 
 interface PumpDetailViewProps {
@@ -493,6 +495,12 @@ const PumpDetailView: React.FC<PumpDetailViewProps> = ({
                     </div>
                     <div>
                       <p className='text-muted-foreground text-sm font-medium'>
+                        RPM
+                      </p>
+                      <p className='font-semibold'>{pump.rpm} RPM</p>
+                    </div>
+                    <div>
+                      <p className='text-muted-foreground text-sm font-medium'>
                         Inlet (mm)
                       </p>
                       <p className='font-semibold'>{pump.inlet} mm</p>
@@ -529,6 +537,12 @@ const PumpDetailView: React.FC<PumpDetailViewProps> = ({
                       Voltage
                     </p>
                     <p className='font-semibold'>{pump.voltage}V</p>
+                  </div>
+                  <div>
+                    <p className='text-muted-foreground text-sm font-medium'>
+                      Frequency
+                    </p>
+                    <p className='font-semibold'>{pump.hz} Hz</p>
                   </div>
                   <div>
                     <p className='text-muted-foreground text-sm font-medium'>

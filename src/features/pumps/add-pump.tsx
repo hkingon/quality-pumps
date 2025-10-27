@@ -51,6 +51,8 @@ interface PumpFormData {
   dataSheet: File | null;
   image: File | null;
   is_public?: boolean;
+  rpm: string;
+  hz: string;
 }
 
 interface UploadedFiles {
@@ -82,7 +84,9 @@ const blankPump: PumpFormData = {
   designSLD: null,
   dataSheet: null,
   image: null,
-  is_public: false
+  is_public: false,
+  rpm: '',
+  hz: '',
 };
 
 const dutyKeys: Record<string, string[]> = {
@@ -275,7 +279,9 @@ const AddPump: React.FC = () => {
         design_sld: uploads.designSLD || null,
         data_sheet: uploads.dataSheet || null,
         image: uploads.image || null,
-        is_public: isAdmin ? pumpForm.is_public || false : false
+        is_public: isAdmin ? pumpForm.is_public || false : false,
+        rpm: parseFloat(pumpForm.rpm) || 0,
+        hz: parseFloat(pumpForm.hz) || 0
       };
 
       // Save to Supabase table
@@ -640,6 +646,17 @@ const AddPump: React.FC = () => {
                       placeholder='Maximum temperature'
                     />
                   </div>
+
+                  <div className='space-y-2'>
+                    <Label htmlFor='rpm'>RPM</Label>
+                    <Input
+                      id='rpm'
+                      type='number'
+                      value={pumpForm.rpm}
+                      onChange={(e) => handleFormChange('rpm', e.target.value)}
+                      placeholder='Rotations per minute'
+                    />
+                  </div>
                 </CardContent>
               </Card>
 
@@ -707,6 +724,17 @@ const AddPump: React.FC = () => {
                         </Button>
                       </div>
                     )}
+                  </div>
+
+                  <div className='space-y-2'>
+                    <Label htmlFor='hz'>Frequency (Hz)</Label>
+                    <Input
+                      id='hz'
+                      type='number'
+                      value={pumpForm.hz}
+                      onChange={(e) => handleFormChange('hz', e.target.value)}
+                      placeholder='Frequency in Hz'
+                    />
                   </div>
 
                   <div className='space-y-2'>

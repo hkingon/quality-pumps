@@ -74,6 +74,8 @@ interface PumpFormData {
   dataSheet: File | null;
   image: File | null;
   is_public?: boolean;
+  rpm: string;
+  hz: string;
 }
 
 interface UploadedFiles {
@@ -147,6 +149,8 @@ interface ExistingPump {
   image: string | null;
   created_at: string;
   updated_at: string;
+  rpm: number;
+  hz: number;
 }
 
 const blankPump: PumpFormData = {
@@ -168,7 +172,9 @@ const blankPump: PumpFormData = {
   designSLD: null,
   dataSheet: null,
   image: null,
-  is_public: false
+  is_public: false,
+  rpm: '',
+  hz: ''
 };
 
 const dutyKeys: Record<string, string[]> = {
@@ -264,7 +270,9 @@ const EditPump: React.FC = () => {
         })),
         designSLD: null,
         dataSheet: null,
-        image: null
+        image: null,
+        rpm: pump.rpm.toString(),
+        hz: pump.hz.toString()
       });
 
       const handleExistingCustomValues = () => {
@@ -564,7 +572,9 @@ const EditPump: React.FC = () => {
         design_sld: uploads.designSLD || null,
         data_sheet: uploads.dataSheet || null,
         image: uploads.image || null,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        rpm: parseFloat(pumpForm.rpm) || 0,
+        hz: parseFloat(pumpForm.hz) || 0
       };
 
       // Update pump in Supabase
@@ -800,6 +810,17 @@ const EditPump: React.FC = () => {
                       placeholder='Maximum temperature'
                     />
                   </div>
+
+                  <div className='space-y-2'>
+                    <Label htmlFor='rpm'>RPM</Label>
+                    <Input
+                      id='rpm'
+                      type='number'
+                      value={pumpForm.rpm}
+                      onChange={(e) => handleFormChange('rpm', e.target.value)}
+                      placeholder='Rotations per minute'
+                    />
+                  </div>
                 </CardContent>
               </Card>
 
@@ -866,6 +887,16 @@ const EditPump: React.FC = () => {
                         </Button>
                       </div>
                     )}
+                  </div>
+                  <div className='space-y-2'>
+                    <Label htmlFor='hz'>Frequency (Hz)</Label>
+                    <Input
+                      id='hz'
+                      type='number'
+                      value={pumpForm.hz}
+                      onChange={(e) => handleFormChange('hz', e.target.value)}
+                      placeholder='Frequency in Hz'
+                    />
                   </div>
                   <div className='space-y-2'>
                     <Label htmlFor='amps'>Current (A)</Label>

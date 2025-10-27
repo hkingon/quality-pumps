@@ -353,7 +353,7 @@ const ManagePumpTypes = () => {
         <CardContent>
           {filteredPumpTypes.length === 0 ? (
             <div className='text-muted-foreground py-12 text-center'>
-              No pump types found. Click "Add New Option" to create one.
+              No pump types found. Click &quot;Add New Option&quot; to create one.
             </div>
           ) : (
             <Table>
