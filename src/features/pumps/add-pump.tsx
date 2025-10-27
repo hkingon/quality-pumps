@@ -1,44 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  X,
-  ArrowLeft,
-  Plus,
-  Settings,
-  Zap,
-  Activity,
-  FileText,
-  Image as ImageIcon,
-  Loader2
-} from 'lucide-react';
+import { X, ArrowLeft, Plus, Settings, Zap, Activity, FileText, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Form,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormControl,
-  FormMessage
-} from '@/components/ui/form';
 import { supabase } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/contexts/auth-context';
-import { useForm } from 'react-hook-form';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 // Define interfaces for type safety
 interface DutyPoint {
@@ -84,52 +59,9 @@ interface UploadedFiles {
   image?: string;
 }
 
-interface User {
-  id: string;
-  email?: string;
-}
-
-const basePumpTypes = [
-  'Centrifugal',
-  'Positive Displacement',
-  'Axial',
-  'Mixed Flow',
-  'Drainage Pump',
-  'Horizontal Multistage',
-  'EndSuction Centrifugal',
-  'Submersible Vortex',
-  'Grinder',
-  'JetPressure Pump',
-  'Submersible Drainage Pump'
-];
-
-const baseConfigurations = [
-  'End Suction',
-  'Split Case',
-  'Vertical Turbine',
-  'Inline',
-  'Self Priming',
-  'Single Pump'
-];
-
-const baseVoltageOptions = [
-  '110',
-  '220',
-  '380',
-  '415',
-  '440',
-  '480',
-  '600',
-  '230',
-  '240',
-  '277',
-  '400',
-  '575'
-];
-
-const pumpTypes = [...basePumpTypes, 'Add New'];
-const configurations = [...baseConfigurations, 'Add New'];
-const voltageOptions = [...baseVoltageOptions, 'Add New'];
+const basePumpTypes = ['Centrifugal', 'PositiveDisplacement', 'Axial', 'MixedFlow', 'DrainagePump', 'HorizontalMultistage', 'EndSuctionCentrifugal', 'SubmersibleVortex', 'Grinder', 'JetPressurePump', 'SubmersibleDrainagePump'];
+const baseConfigurations = ['EndSuction', 'SplitCase', 'VerticalTurbine', 'Inline', 'SelfPriming', 'SinglePump'];
+const baseVoltageOptions = ['110', '220', '380', '415', '440', '480', '600', '230', '240', '277', '400', '575'];
 
 const blankPump: PumpFormData = {
   brand: '',
@@ -160,13 +92,6 @@ const dutyKeys: Record<string, string[]> = {
   efficiency: ['eff', 'flow']
 };
 
-const dutyPlaceholders: Record<string, string[]> = {
-  pvsq: ['head (m/head)', 'flow (L/min)'],
-  npshr: ['head (m/head)', 'flow (L/min)'],
-  motorPower: ['kW', 'flow (L/min)'],
-  efficiency: ['eff (η)', 'flow (L/min)']
-};
-
 const phaseOptions = ['1', '3'];
 
 const AddPump: React.FC = () => {
@@ -178,16 +103,55 @@ const AddPump: React.FC = () => {
   const [showCustomType, setShowCustomType] = useState(false);
   const [showCustomConfiguration, setShowCustomConfiguration] = useState(false);
   const [showCustomVoltage, setShowCustomVoltage] = useState(false);
+  const [dynamicPumpTypes, setDynamicPumpTypes] = useState<string[]>([]);
+  const [dynamicConfigurations, setDynamicConfigurations] = useState<string[]>([]);
+  const [dynamicVoltageOptions, setDynamicVoltageOptions] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [dynamicPumpTypes, setDynamicPumpTypes] = useState(pumpTypes);
-  const [dynamicConfigurations, setDynamicConfigurations] =
-    useState(configurations);
-  const [dynamicVoltageOptions, setDynamicVoltageOptions] =
-    useState(voltageOptions);
   const router = useRouter();
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const isAdmin = user?.user_metadata?.role === 'admin';
-  const form = useForm();
+
+  // Fetch custom options from database on component mount
+  useEffect(() => {
+    const fetchCustomOptions = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('pump_types')
+          .select('name, category');
+
+        if (error) throw error;
+
+        if (data) {
+          // Filter and organize by category
+          const customTypes = data
+            .filter(item => item.category === 'type')
+            .map(item => item.name);
+          const customConfigs = data
+            .filter(item => item.category === 'configuration')
+            .map(item => item.name);
+          const customVoltages = data
+            .filter(item => item.category === 'voltage')
+            .map(item => item.name);
+
+          // Merge with base options and add "AddNew"
+          setDynamicPumpTypes([...basePumpTypes, ...customTypes, 'AddNew']);
+          setDynamicConfigurations([...baseConfigurations, ...customConfigs, 'AddNew']);
+          setDynamicVoltageOptions([...baseVoltageOptions, ...customVoltages, 'AddNew']);
+        }
+      } catch (err) {
+        console.error('Error fetching custom options:', err);
+        // Fallback to base options
+        setDynamicPumpTypes([...basePumpTypes, 'AddNew']);
+        setDynamicConfigurations([...baseConfigurations, 'AddNew']);
+        setDynamicVoltageOptions([...baseVoltageOptions, 'AddNew']);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCustomOptions();
+  }, []);
 
   const handleFormChange = (field: keyof PumpFormData, value: string): void => {
     setPumpForm((prev) => ({ ...prev, [field]: value }));
@@ -201,50 +165,62 @@ const AddPump: React.FC = () => {
   ): void => {
     setPumpForm((prev) => ({
       ...prev,
-      [table]: prev[table].map((row, i) =>
-        i === idx ? { ...row, [key]: value } : row
-      )
+      [table]: prev[table].map((row, i) => (i === idx ? { ...row, [key]: value } : row))
     }));
   };
 
-  const addDutyPoint = (
-    table: 'pvsq' | 'npshr' | 'motorPower' | 'efficiency'
-  ): void => {
+  const addDutyPoint = (table: 'pvsq' | 'npshr' | 'motorPower' | 'efficiency'): void => {
     setPumpForm((prev) => ({
       ...prev,
-      [table]: [
-        ...prev[table],
-        Object.fromEntries(dutyKeys[table].map((k) => [k, '']))
-      ]
+      [table]: [...prev[table], Object.fromEntries(dutyKeys[table].map((k) => [k, '']))]
     }));
   };
 
-  const removeDutyPoint = (
-    table: 'pvsq' | 'npshr' | 'motorPower' | 'efficiency',
-    idx: number
-  ): void => {
+  const removeDutyPoint = (table: 'pvsq' | 'npshr' | 'motorPower' | 'efficiency', idx: number): void => {
     setPumpForm((prev) => ({
       ...prev,
       [table]: prev[table].filter((_, i) => i !== idx)
     }));
   };
 
-  const handleFileChange = (
-    field: 'designSLD' | 'dataSheet' | 'image',
-    file: File | null
-  ): void => {
+  const handleFileChange = (field: 'designSLD' | 'dataSheet' | 'image', file: File | null): void => {
     setPumpForm((prev) => ({ ...prev, [field]: file }));
   };
 
-  const uploadToSupabase = async (
-    file: File,
-    path: string
-  ): Promise<string> => {
-    const { data, error } = await supabase.storage
-      .from('pump-assets')
-      .upload(path, file);
+  const uploadToSupabase = async (file: File, path: string): Promise<string> => {
+    const { data, error } = await supabase.storage.from('pump-assets').upload(path, file);
     if (error) throw error;
     return data.path;
+  };
+
+  // Save custom option to database (admin only)
+  const saveCustomOption = async (name: string, category: 'type' | 'configuration' | 'voltage'): Promise<boolean> => {
+    if (!isAdmin) {
+      toast.error('Only admins can add custom options');
+      return false;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('pump_types')
+        .insert([{ name, category, created_by: user?.id }]);
+
+      if (error) {
+        // Check if it's a duplicate
+        if (error.code === '23505') {
+          toast.info('This option already exists in the database');
+          return true;
+        }
+        throw error;
+      }
+
+      toast.success(`Custom ${category} added and will be available to all users`);
+      return true;
+    } catch (err) {
+      console.error('Error saving custom option:', err);
+      toast.error('Failed to save custom option to database');
+      return false;
+    }
   };
 
   const handleSavePump = async (): Promise<void> => {
@@ -309,8 +285,7 @@ const AddPump: React.FC = () => {
       toast.success('Pump added successfully!');
       router.push('/dashboard/pumps');
     } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'An error occurred';
+      const errorMessage = err instanceof Error ? err.message : 'An error occurred';
       toast.error(`Error: ${errorMessage}`);
     } finally {
       setUploading(false);
@@ -318,7 +293,7 @@ const AddPump: React.FC = () => {
   };
 
   const handleTypeChange = (value: string): void => {
-    if (value === 'Add New') {
+    if (value === 'AddNew') {
       setShowCustomType(true);
       setCustomType('');
     } else {
@@ -328,7 +303,7 @@ const AddPump: React.FC = () => {
   };
 
   const handleConfigurationChange = (value: string): void => {
-    if (value === 'Add New') {
+    if (value === 'AddNew') {
       setShowCustomConfiguration(true);
       setCustomConfiguration('');
     } else {
@@ -338,7 +313,7 @@ const AddPump: React.FC = () => {
   };
 
   const handleVoltageChange = (value: string): void => {
-    if (value === 'Add New') {
+    if (value === 'AddNew') {
       setShowCustomVoltage(true);
       setCustomVoltage('');
     } else {
@@ -347,13 +322,30 @@ const AddPump: React.FC = () => {
     }
   };
 
-  const handleCustomTypeSubmit = (): void => {
+  const handleCustomTypeSubmit = async (): Promise<void> => {
     if (customType.trim()) {
       const newType = customType.trim();
+      
+      // Check if it already exists in the current list
+      if (dynamicPumpTypes.includes(newType)) {
+        handleFormChange('type', newType);
+        setShowCustomType(false);
+        setCustomType('');
+        return;
+      }
 
-      if (!dynamicPumpTypes.includes(newType)) {
-        const updatedTypes = [...basePumpTypes, newType, 'Add New'];
+      // Save to database if admin
+      if (isAdmin) {
+        const saved = await saveCustomOption(newType, 'type');
+        if (saved) {
+          const updatedTypes = [...dynamicPumpTypes.filter(t => t !== 'AddNew'), newType, 'AddNew'];
+          setDynamicPumpTypes(updatedTypes);
+        }
+      } else {
+        // Non-admin: just add locally for this session
+        const updatedTypes = [...dynamicPumpTypes.filter(t => t !== 'AddNew'), newType, 'AddNew'];
         setDynamicPumpTypes(updatedTypes);
+        toast.info('Custom type added.');
       }
 
       handleFormChange('type', newType);
@@ -362,13 +354,27 @@ const AddPump: React.FC = () => {
     }
   };
 
-  const handleCustomConfigurationSubmit = (): void => {
+  const handleCustomConfigurationSubmit = async (): Promise<void> => {
     if (customConfiguration.trim()) {
       const newConfig = customConfiguration.trim();
+      
+      if (dynamicConfigurations.includes(newConfig)) {
+        handleFormChange('configuration', newConfig);
+        setShowCustomConfiguration(false);
+        setCustomConfiguration('');
+        return;
+      }
 
-      if (!dynamicConfigurations.includes(newConfig)) {
-        const updatedConfigs = [...baseConfigurations, newConfig, 'Add New'];
+      if (isAdmin) {
+        const saved = await saveCustomOption(newConfig, 'configuration');
+        if (saved) {
+          const updatedConfigs = [...dynamicConfigurations.filter(c => c !== 'AddNew'), newConfig, 'AddNew'];
+          setDynamicConfigurations(updatedConfigs);
+        }
+      } else {
+        const updatedConfigs = [...dynamicConfigurations.filter(c => c !== 'AddNew'), newConfig, 'AddNew'];
         setDynamicConfigurations(updatedConfigs);
+        toast.info('Custom configuration added.');
       }
 
       handleFormChange('configuration', newConfig);
@@ -377,13 +383,27 @@ const AddPump: React.FC = () => {
     }
   };
 
-  const handleCustomVoltageSubmit = (): void => {
+  const handleCustomVoltageSubmit = async (): Promise<void> => {
     if (customVoltage.trim()) {
       const newVoltage = customVoltage.trim();
+      
+      if (dynamicVoltageOptions.includes(newVoltage)) {
+        handleFormChange('voltage', newVoltage);
+        setShowCustomVoltage(false);
+        setCustomVoltage('');
+        return;
+      }
 
-      if (!dynamicVoltageOptions.includes(newVoltage)) {
-        const updatedVoltages = [...baseVoltageOptions, newVoltage, 'Add New'];
+      if (isAdmin) {
+        const saved = await saveCustomOption(newVoltage, 'voltage');
+        if (saved) {
+          const updatedVoltages = [...dynamicVoltageOptions.filter(v => v !== 'AddNew'), newVoltage, 'AddNew'];
+          setDynamicVoltageOptions(updatedVoltages);
+        }
+      } else {
+        const updatedVoltages = [...dynamicVoltageOptions.filter(v => v !== 'AddNew'), newVoltage, 'AddNew'];
         setDynamicVoltageOptions(updatedVoltages);
+        toast.info('Custom voltage added.');
       }
 
       handleFormChange('voltage', newVoltage);
@@ -398,6 +418,14 @@ const AddPump: React.FC = () => {
         <Alert>
           <AlertDescription>Please login to add a new pump.</AlertDescription>
         </Alert>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className='container mx-auto p-6 flex items-center justify-center'>
+        <Loader2 className='h-8 w-8 animate-spin' />
       </div>
     );
   }
@@ -418,6 +446,19 @@ const AddPump: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {isAdmin && (
+          <div className='flex gap-2'>
+            <Button
+              variant='outline'
+              onClick={() =>
+                window.open('/dashboard/pumps/types/manage', '_blank')
+              }
+            >
+              Manage Pump Types
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className='grid grid-cols-1 gap-6 lg:grid-cols-3'>
@@ -451,6 +492,7 @@ const AddPump: React.FC = () => {
                       placeholder='Enter pump brand'
                     />
                   </div>
+
                   <div className='space-y-2'>
                     <Label htmlFor='model'>Model</Label>
                     <Input
@@ -462,6 +504,7 @@ const AddPump: React.FC = () => {
                       placeholder='Enter pump model'
                     />
                   </div>
+
                   <div className='space-y-2'>
                     <Label htmlFor='type'>Type</Label>
                     <Select
@@ -507,6 +550,7 @@ const AddPump: React.FC = () => {
                       </div>
                     )}
                   </div>
+
                   <div className='space-y-2'>
                     <Label htmlFor='configuration'>Configuration</Label>
                     <Select
@@ -557,6 +601,7 @@ const AddPump: React.FC = () => {
                       </div>
                     )}
                   </div>
+
                   <div className='space-y-2'>
                     <Label htmlFor='inlet'>Inlet (mm)</Label>
                     <Input
@@ -569,6 +614,7 @@ const AddPump: React.FC = () => {
                       placeholder='Inlet diameter'
                     />
                   </div>
+
                   <div className='space-y-2'>
                     <Label htmlFor='outlet'>Outlet (mm)</Label>
                     <Input
@@ -581,6 +627,7 @@ const AddPump: React.FC = () => {
                       placeholder='Outlet diameter'
                     />
                   </div>
+
                   <div className='space-y-2'>
                     <Label htmlFor='maxTemp'>Max Temperature (°C)</Label>
                     <Input
@@ -614,6 +661,7 @@ const AddPump: React.FC = () => {
                       placeholder='Motor power'
                     />
                   </div>
+
                   <div className='space-y-2'>
                     <Label htmlFor='voltage'>Voltage (V)</Label>
                     <Select
@@ -626,7 +674,7 @@ const AddPump: React.FC = () => {
                       <SelectContent>
                         {dynamicVoltageOptions.map((voltage) => (
                           <SelectItem key={voltage} value={voltage}>
-                            {voltage === 'Add New' ? voltage : `${voltage}V`}
+                            {voltage === 'AddNew' ? voltage : `${voltage}V`}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -660,6 +708,7 @@ const AddPump: React.FC = () => {
                       </div>
                     )}
                   </div>
+
                   <div className='space-y-2'>
                     <Label htmlFor='amps'>Current (A)</Label>
                     <Input
@@ -670,6 +719,7 @@ const AddPump: React.FC = () => {
                       placeholder='Current rating'
                     />
                   </div>
+
                   <div className='space-y-2'>
                     <Label htmlFor='phases'>Phases</Label>
                     <Select
@@ -986,6 +1036,7 @@ const AddPump: React.FC = () => {
                       </p>
                     )}
                   </div>
+
                   <div className='space-y-2'>
                     <Label htmlFor='dataSheet'>Data Sheet (PDF)</Label>
                     <Input
@@ -1005,6 +1056,7 @@ const AddPump: React.FC = () => {
                       </p>
                     )}
                   </div>
+
                   <div className='space-y-2'>
                     <Label htmlFor='image'>Pump Image</Label>
                     <Input
