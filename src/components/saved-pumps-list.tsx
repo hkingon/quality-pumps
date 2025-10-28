@@ -28,6 +28,8 @@ import {
   CollapsibleTrigger
 } from '@/components/ui/collapsible';
 import Link from 'next/link';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import PumpDetailView from '@/features/pumps/pump-details-view';
 
 interface SavedPumpsListProps {
   savedPumps: SavedPump[];
@@ -117,6 +119,9 @@ export function SavedPumpsList({
   const [pumpsOnChart, setPumpsOnChart] = useState<string[]>([]);
   const [filters, setFilters] = useState<FilterState>(initialFilters);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+
+  const [selectedPumpId, setSelectedPumpId] = useState<string | null>(null);
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
 
   const allPumps = useMemo(() => {
   // For admins: only show saved pumps (owned), don't mix with public pumps
@@ -529,6 +534,11 @@ export function SavedPumpsList({
     headUnit
   ]);
 
+  const handleViewPump = (pumpId: string): void => {
+    setSelectedPumpId(pumpId);
+    setIsDetailsModalOpen(true);
+  };
+
   return (
     <div className='space-y-4'>
       {/* Search Bar */}
@@ -873,7 +883,7 @@ export function SavedPumpsList({
                 <div className='mr-2 truncate'>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Link href={`/dashboard/pumps/${pump.id}`}>
+                      {/* <Link href={`/dashboard/pumps/${pump.id}`}> */}
                         <button
                           className='flex cursor-pointer items-center gap-2 border-none bg-transparent p-0 hover:underline'
                           style={{
@@ -883,6 +893,7 @@ export function SavedPumpsList({
                             alignItems: 'center',
                             gap: '0.5rem'
                           }}
+                          onClick={() => handleViewPump(pump.id)}
                           aria-label='View pump curves'
                         >
                           <span className='font-medium'>{pump.name}</span>
@@ -902,7 +913,7 @@ export function SavedPumpsList({
                             </span>
                           )}
                         </button>
-                      </Link>
+                      {/* </Link> */}
                     </TooltipTrigger>
                     <TooltipContent side='right' align='center'>
                       View pump curves
@@ -958,6 +969,19 @@ export function SavedPumpsList({
           })}
         </ul>
       )}
+
+      <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
+        <DialogContent className='no-scrollbar max-h-[95vh] max-w-[95vw] min-w-[80vw] overflow-y-auto p-0'>
+          {selectedPumpId && (
+            <PumpDetailView
+              pumpId={selectedPumpId}
+              onClose={() => setIsDetailsModalOpen(false)}
+              isModal={true}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }
