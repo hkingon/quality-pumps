@@ -30,6 +30,8 @@ interface CSVRow {
   amps: string;
   phases: string;
   max_temp: string;
+  rpm?: string;
+  hz?: string;
   head_1?: string;
   flow_1?: string;
   head_2?: string;
@@ -79,6 +81,8 @@ export const CSVImportDialog: React.FC<CSVImportDialogProps> = ({
         brand: 'Sample Brand',
         model: 'SP100',
         kw: '5.5',
+        rpm: '2900',
+        hz: '50',
         inlet: '80',
         outlet: '65',
         configuration: 'Horizontal',
@@ -189,6 +193,8 @@ export const CSVImportDialog: React.FC<CSVImportDialogProps> = ({
       brand: row.brand?.trim() || '',
       model: row.model?.trim() || '',
       kw: Number(row.kw) || 0,
+      rpm: Number(row.rpm) || 0,
+      hz: Number(row.hz) || 0,
       inlet: Number(row.inlet) || 0,
       outlet: Number(row.outlet) || 0,
       configuration: row.configuration?.trim() || '',
@@ -227,6 +233,8 @@ export const CSVImportDialog: React.FC<CSVImportDialogProps> = ({
           Brand: 'brand',
           Model: 'model',
           KW: 'kw',
+          RPM: 'rpm',
+          Hz: 'hz', 
           'Inlet(mm)': 'inlet',
           'Outlet(mm)': 'outlet',
           Configuration: 'configuration',
@@ -290,6 +298,8 @@ export const CSVImportDialog: React.FC<CSVImportDialogProps> = ({
                 brand: row.brand?.trim() || '',
                 model: row.model?.trim() || '',
                 kw: Number(row.kw) || 0,
+                rpm: Number(row.rpm) || 0,
+                hz: Number(row.hz) || 0,
                 inlet: Number(row.inlet) || 0,
                 outlet: Number(row.outlet) || 0,
                 configuration: row.configuration?.trim() || '',

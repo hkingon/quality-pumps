@@ -76,6 +76,8 @@ interface Pump {
   brand: string;
   model: string;
   kw: number;
+  rpm: number;
+  hz: number;
   inlet: number;
   outlet: number;
   configuration: string;
@@ -310,6 +312,8 @@ const PumpLibraryPage: React.FC = () => {
       'Brand',
       'Model',
       'KW',
+      'RPM',
+      'Hz',
       'Inlet(mm)',
       'Outlet(mm)',
       'Configuration',
@@ -348,6 +352,8 @@ const PumpLibraryPage: React.FC = () => {
         escapeCSVValue(p.brand),
         escapeCSVValue(p.model),
         escapeCSVValue(p.kw),
+        escapeCSVValue(p.rpm),
+        escapeCSVValue(p.hz),
         escapeCSVValue(p.inlet),
         escapeCSVValue(p.outlet),
         escapeCSVValue(p.configuration),
