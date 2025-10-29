@@ -237,6 +237,12 @@ const EditPump: React.FC = () => {
         throw error;
       }
 
+      const { data: pumpTypes, error: pumpTypesError } = await supabase
+        .from('pump_types')
+        .select('name, category');
+
+      if (pumpTypesError) throw pumpTypesError;
+
       const pump: ExistingPump = data;
 
       // Convert pump data to form format
@@ -276,38 +282,89 @@ const EditPump: React.FC = () => {
       });
 
       const handleExistingCustomValues = () => {
-        let updatedTypes = [...basePumpTypes, 'Add New'];
-        let updatedConfigs = [...baseConfigurations, 'Add New'];
-        let updatedVoltages = [...baseVoltageOptions, 'Add New'];
+        let updatedTypes = [...basePumpTypes];
+        let updatedConfigs = [...baseConfigurations];
+        let updatedVoltages = [...baseVoltageOptions];
 
-        if (
-          pump.type &&
-          !basePumpTypes.includes(pump.type) &&
-          pump.type !== 'Add New'
-        ) {
-          updatedTypes = [...basePumpTypes, pump.type, 'Add New'];
+        // Get custom types from pump_types table
+        if (pumpTypes) {
+          const customTypes = pumpTypes
+            .filter((item) => item.category === 'type')
+            .map((item) => item.name);
+
+          // Add custom types from database (avoid duplicates)
+          customTypes.forEach((type) => {
+            if (!updatedTypes.includes(type)) {
+              updatedTypes.push(type);
+            }
+          });
         }
 
+        // Check if current pump type is not in the list
+        if (
+          pump.type &&
+          !updatedTypes.includes(pump.type) &&
+          pump.type !== 'Add New'
+        ) {
+          updatedTypes.push(pump.type);
+        }
+
+        // Add 'Add New' at the end
+        updatedTypes.push('Add New');
+
+        // Get custom configurations from pump_types table
+        if (pumpTypes) {
+          const customConfigs = pumpTypes
+            .filter((item) => item.category === 'configuration')
+            .map((item) => item.name);
+
+          // Add custom configs from database (avoid duplicates)
+          customConfigs.forEach((config) => {
+            if (!updatedConfigs.includes(config)) {
+              updatedConfigs.push(config);
+            }
+          });
+        }
+
+        // Check if current pump configuration is not in the list
         if (
           pump.configuration &&
-          !baseConfigurations.includes(pump.configuration) &&
+          !updatedConfigs.includes(pump.configuration) &&
           pump.configuration !== 'Add New'
         ) {
-          updatedConfigs = [
-            ...baseConfigurations,
-            pump.configuration,
-            'Add New'
-          ];
+          updatedConfigs.push(pump.configuration);
+        }
+
+        // Add 'Add New' at the end
+        updatedConfigs.push('Add New');
+
+        // Get custom voltages from pump_types table
+        if (pumpTypes) {
+          const customVoltages = pumpTypes
+            .filter((item) => item.category === 'voltage')
+            .map((item) => item.name);
+
+          // Add custom voltages from database (avoid duplicates)
+          customVoltages.forEach((voltage) => {
+            if (!updatedVoltages.includes(voltage)) {
+              updatedVoltages.push(voltage);
+            }
+          });
         }
 
         const voltageStr = pump.voltage.toString();
+
+        // Check if current pump voltage is not in the list
         if (
           voltageStr &&
-          !baseVoltageOptions.includes(voltageStr) &&
+          !updatedVoltages.includes(voltageStr) &&
           voltageStr !== 'Add New'
         ) {
-          updatedVoltages = [...baseVoltageOptions, voltageStr, 'Add New'];
+          updatedVoltages.push(voltageStr);
         }
+
+        // Add 'Add New' at the end
+        updatedVoltages.push('Add New');
 
         setDynamicPumpTypes(updatedTypes);
         setDynamicConfigurations(updatedConfigs);
@@ -339,7 +396,7 @@ const EditPump: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  };  
 
   useEffect(() => {
     setDynamicPumpTypes([...basePumpTypes, 'Add New']);
@@ -635,6 +692,18 @@ const EditPump: React.FC = () => {
             </p>
           </div>
         </div>
+        {isAdmin && (
+          <div className='flex gap-2'>
+            <Button
+              variant='outline'
+              onClick={() =>
+                window.open('/dashboard/pumps/types/manage', '_blank')
+              }
+            >
+              Manage Pump Types
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className='grid grid-cols-1 gap-6 lg:grid-cols-3'>
