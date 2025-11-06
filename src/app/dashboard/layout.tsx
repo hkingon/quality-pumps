@@ -1,7 +1,9 @@
 // import KBar from '@/components/kbar';
+import { DisclaimerModal } from '@/components/DisclaimerModal';
 import AppSidebar from '@/components/layout/app-sidebar';
 import Header from '@/components/layout/header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import { createClient } from '@/lib/supabase/server';
 // // import { supabase } from '@/lib/supabase/client';
 // import { createClient } from '@/lib/supabase/server';
 import type { Metadata } from 'next';
@@ -31,9 +33,14 @@ export default async function DashboardLayout({
   //   redirect('/auth/sign-in');
   // }
   const cookieStore = await cookies();
+  const supabase = createClient(); // Pass cookies for SSR
+
+  const { data: { user } } = await (await supabase).auth.getUser();
+
   const defaultOpen = cookieStore.get('sidebar:state')?.value === 'true';
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
+      <DisclaimerModal userId={user?.id} />
       <AppSidebar />
       <SidebarInset>
         <Header />

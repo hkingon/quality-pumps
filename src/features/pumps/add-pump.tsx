@@ -14,6 +14,7 @@ import { useAuth } from '@/lib/contexts/auth-context';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 // Define interfaces for type safety
 interface DutyPoint {
@@ -111,6 +112,10 @@ const AddPump: React.FC = () => {
   const [dynamicConfigurations, setDynamicConfigurations] = useState<string[]>([]);
   const [dynamicVoltageOptions, setDynamicVoltageOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [jsonInput, setJsonInput] = useState('');
+  const [importTarget, setImportTarget] = useState<'pvsq' | 'npshr' | 'motorPower' | 'efficiency' | null>(null);
 
   const router = useRouter();
   const { user } = useAuth();
@@ -435,6 +440,56 @@ const AddPump: React.FC = () => {
       </div>
     );
   }
+
+  const handleImportJSON = (
+    table: 'pvsq' | 'npshr' | 'motorPower' | 'efficiency'
+  ) => {
+    try {
+      const parsed = JSON.parse(jsonInput);
+
+      // Validate the JSON structure based on table type
+      if (!Array.isArray(parsed)) {
+        toast.error('JSON must be an array of objects');
+        return;
+      }
+
+      let validData;
+
+      switch (table) {
+        case 'pvsq':
+        case 'npshr':
+          validData = parsed.map((item: any) => ({
+            head: item.head?.toString() || '',
+            flow: item.flow?.toString() || ''
+          }));
+          break;
+        case 'motorPower':
+          validData = parsed.map((item: any) => ({
+            kw: item.kw?.toString() || '',
+            flow: item.flow?.toString() || ''
+          }));
+          break;
+        case 'efficiency':
+          validData = parsed.map((item: any) => ({
+            eff: item.eff?.toString() || '',
+            flow: item.flow?.toString() || ''
+          }));
+          break;
+      }
+
+      setPumpForm((prev) => ({
+        ...prev,
+        [table]: validData
+      }));
+
+      toast.success(`Successfully imported ${validData.length} data points`);
+      setShowImportDialog(false);
+      setJsonInput('');
+      setImportTarget(null);
+    } catch (error) {
+      toast.error('Invalid JSON format. Please check your input.');
+    }
+  };
 
   return (
     <div className='container mx-auto space-y-6 p-6'>
@@ -850,11 +905,24 @@ const AddPump: React.FC = () => {
                   <Button
                     size='sm'
                     variant='outline'
+                    className='mr-2'
                     onClick={() => addDutyPoint('pvsq')}
                     type='button'
                   >
                     <Plus className='mr-2 h-4 w-4' />
                     Add Performance Point
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => {
+                      setImportTarget('pvsq');
+                      setShowImportDialog(true);
+                    }}
+                    type='button'
+                  >
+                    <FileText className='mr-2 h-4 w-4' />
+                    Import from JSON
                   </Button>
                 </CardContent>
               </Card>
@@ -908,11 +976,24 @@ const AddPump: React.FC = () => {
                   <Button
                     size='sm'
                     variant='outline'
+                    className='mr-2'
                     onClick={() => addDutyPoint('npshr')}
                     type='button'
                   >
                     <Plus className='mr-2 h-4 w-4' />
                     Add NPSHR Point
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => {
+                      setImportTarget('npshr');
+                      setShowImportDialog(true);
+                    }}
+                    type='button'
+                  >
+                    <FileText className='mr-2 h-4 w-4' />
+                    Import from JSON
                   </Button>
                 </CardContent>
               </Card>
@@ -966,11 +1047,24 @@ const AddPump: React.FC = () => {
                   <Button
                     size='sm'
                     variant='outline'
+                    className='mr-2'
                     onClick={() => addDutyPoint('efficiency')}
                     type='button'
                   >
                     <Plus className='mr-2 h-4 w-4' />
                     Add Efficiency Point
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => {
+                      setImportTarget('efficiency');
+                      setShowImportDialog(true);
+                    }}
+                    type='button'
+                  >
+                    <FileText className='mr-2 h-4 w-4' />
+                    Import from JSON
                   </Button>
                 </CardContent>
               </Card>
@@ -1026,11 +1120,24 @@ const AddPump: React.FC = () => {
                   <Button
                     size='sm'
                     variant='outline'
+                    className='mr-2'
                     onClick={() => addDutyPoint('motorPower')}
                     type='button'
                   >
                     <Plus className='mr-2 h-4 w-4' />
                     Add Motor Power Point
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => {
+                      setImportTarget('motorPower');
+                      setShowImportDialog(true);
+                    }}
+                    type='button'
+                  >
+                    <FileText className='mr-2 h-4 w-4' />
+                    Import from JSON
                   </Button>
                 </CardContent>
               </Card>
@@ -1198,6 +1305,49 @@ const AddPump: React.FC = () => {
           </Button>
         </div>
       </div>
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className='max-w-2xl'>
+          <DialogHeader>
+            <DialogTitle>
+              Import {importTarget?.toUpperCase()} Data from JSON
+            </DialogTitle>
+          </DialogHeader>
+          <div className='space-y-4'>
+            <div className='space-y-2'>
+              <Label>JSON Data</Label>
+              <textarea
+                className='min-h-[300px] w-full rounded-md border p-3 font-mono text-sm'
+                placeholder={`Paste your JSON here. Example:\n${
+                  importTarget === 'pvsq' || importTarget === 'npshr'
+                    ? '[\n  { "head": 25, "flow": 100 },\n  { "head": 20, "flow": 150 }\n]'
+                    : importTarget === 'motorPower'
+                      ? '[\n  { "kw": 5.5, "flow": 100 },\n  { "kw": 7.5, "flow": 150 }\n]'
+                      : '[\n  { "eff": 75, "flow": 100 },\n  { "eff": 80, "flow": 150 }\n]'
+                }`}
+                value={jsonInput}
+                onChange={(e) => setJsonInput(e.target.value)}
+              />
+            </div>
+            <div className='flex justify-end gap-2'>
+              <Button
+                variant='outline'
+                onClick={() => {
+                  setShowImportDialog(false);
+                  setJsonInput('');
+                  setImportTarget(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => importTarget && handleImportJSON(importTarget)}
+              >
+                Import Data
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
