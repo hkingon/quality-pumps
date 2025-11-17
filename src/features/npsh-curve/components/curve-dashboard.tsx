@@ -572,7 +572,14 @@ export function PumpCurveDashboard() {
       // maxFlowDischarge = Math.max(maxFlowDischarge, pump.maxFlow); // Update discharge max flow
       // const combinedMaxFlow = pump.maxFlow * numberOfDutyPumps;
       // maxFlowDischarge = Math.max(maxFlowDischarge, combinedMaxFlow);
-      maxFlowDischarge = Math.max(maxFlowDischarge, pump.maxFlow);
+      const individualMaxFlow = pump.maxFlow;
+      const combinedMaxFlow = pump.maxFlow * numberOfDutyPumps;
+      maxFlowDischarge = Math.max(
+        maxFlowDischarge,
+        individualMaxFlow,
+        combinedMaxFlow
+      );
+
 
       // -- Pump P vs Q Curve
       let pumpPoints = [];
@@ -650,6 +657,29 @@ export function PumpCurveDashboard() {
         flow: bepFlow * numberOfDutyPumps,
         head: bepHead
       });
+
+
+      if (pumpPoints.length > 0) {
+        maxHeadDischarge = Math.max(
+          maxHeadDischarge,
+          ...pumpPoints.map((p) => p.head)
+        );
+        maxFlowDischarge = Math.max(
+          maxFlowDischarge,
+          ...pumpPoints.map((p) => p.flow)
+        );
+      }
+
+      if (combinedPumpPoints.length > 0) {
+        maxHeadDischarge = Math.max(
+          maxHeadDischarge,
+          ...combinedPumpPoints.map((p) => p.head)
+        );
+        maxFlowDischarge = Math.max(
+          maxFlowDischarge,
+          ...combinedPumpPoints.map((p) => p.flow)
+        );
+      }
 
       // --- NPSHr curve ---
       let npshPoints: PumpCurvePoint[] = [];

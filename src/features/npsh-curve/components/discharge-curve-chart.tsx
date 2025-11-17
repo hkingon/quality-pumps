@@ -185,8 +185,13 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
     let maxFlow = 0;
     let maxHead = 0;
 
-    // Combine all points from segmentedPumpCurves and segmentedModifiedPumpCurves
-    const allCurves = [...segmentedPumpCurves, ...segmentedModifiedPumpCurves];
+    // Include ALL curves: individual, modified, AND combined curves
+    const allCurves = [
+      ...segmentedPumpCurves,
+      ...segmentedModifiedPumpCurves,
+      ...segmentedCombinedPumpCurves, // ADD THIS
+      ...segmentedModifiedCombinedPumpCurves // ADD THIS
+    ];
 
     allCurves.forEach((curve) => {
       const allPoints = [
@@ -202,7 +207,31 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
       }
     });
 
-    // Round up to nearest 10 for cleaner axis scaling
+    // Also include system curve points and BEP points
+    dischargeSystemCurvePoints.forEach((points) => {
+      if (points.length > 0) {
+        const curveMaxFlow = Math.max(...points.map((p) => p.flow));
+        const curveMaxHead = Math.max(...points.map((p) => p.head));
+        maxFlow = Math.max(maxFlow, curveMaxFlow);
+        maxHead = Math.max(maxHead, curveMaxHead);
+      }
+    });
+
+    // Include BEP points (both individual and combined)
+    const allBepPoints = [
+      ...bepPoints,
+      ...modifiedBepPoints,
+      ...combinedBepPoints, // ADD THIS
+      ...modifiedCombinedBepPoints // ADD THIS
+    ];
+
+    allBepPoints.forEach((point) => {
+      if (point.flow > 0 && point.head > 0) {
+        maxFlow = Math.max(maxFlow, point.flow);
+        maxHead = Math.max(maxHead, point.head);
+      }
+    });
+
     return {
       maxFlow: Math.ceil(maxFlow / 10) * 10 || 100,
       maxHead: Math.ceil(maxHead / 10) * 10 || 150
@@ -308,7 +337,8 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
         borderColor: dischargeColors[index % dischargeColors.length],
         backgroundColor: dischargeColors[index % dischargeColors.length],
         pointRadius: 8,
-        pointStyle: 'circle',
+        pointStyle: 'triangle',
+        pointRotation: 90,
         type: 'scatter',
         showLine: false,
         yAxisID: 'y'

@@ -875,8 +875,10 @@ export function SavedPumpsList({
               <li
                 key={pump.id}
                 className={`flex items-center justify-between rounded border p-2 ${
-                  pump.canMeetDuty
+                  pump.canMeetDuty && pump.score <= 1.2
                     ? 'border-green-300 bg-green-100 dark:border-green-800 dark:bg-green-950'
+                    : pump.canMeetDuty && pump.score > 1.2
+                    ? 'border-yellow-300 bg-yellow-100 dark:border-yellow-800 dark:bg-yellow-950'
                     : 'border-red-300 bg-red-100 dark:border-red-800 dark:bg-red-950'
                 }`}
               >
