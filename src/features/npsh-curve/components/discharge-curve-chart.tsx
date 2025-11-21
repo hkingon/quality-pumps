@@ -106,6 +106,36 @@ const getPumpColor = (index: number): string => {
   return generateDistinctColor(index);
 };
 
+const createChevronArrow = (color: string) => {
+  const size = 24;
+  const strokeWidth = 3;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+
+  const ctx = canvas.getContext("2d")!;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = strokeWidth;
+  ctx.lineCap = "round";
+
+  ctx.save();
+  ctx.translate(size / 2, size / 2);
+
+  // Rotate 90 degrees if you want it pointing upward
+  // ctx.rotate(Math.PI / 2);
+
+  ctx.beginPath();
+  ctx.moveTo(-4, -6);   // top-left
+  ctx.lineTo(4, 0);     // center point
+  ctx.lineTo(-4, 6);    // bottom-left
+  ctx.stroke();
+
+  ctx.restore();
+  return canvas;
+};
+
+
 export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
   pumpData,
   dischargeSystemCurveData,
@@ -337,8 +367,9 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
         borderColor: dischargeColors[index % dischargeColors.length],
         backgroundColor: dischargeColors[index % dischargeColors.length],
         pointRadius: 8,
-        pointStyle: 'triangle',
-        pointRotation: 90,
+        // pointStyle: 'triangle',
+        pointStyle: () => createChevronArrow(dischargeColors[index % dischargeColors.length]),
+        // pointRotation: 90,
         type: 'scatter',
         showLine: false,
         yAxisID: 'y'
