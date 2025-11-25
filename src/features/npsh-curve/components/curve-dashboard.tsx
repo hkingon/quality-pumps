@@ -639,10 +639,10 @@ export function PumpCurveDashboard() {
       //   maxHeadDischarge,
       //   ...pumpPoints.map((p) => p.head)
       // );
-      maxHeadDischarge = Math.max(
-        maxHeadDischarge,
-        ...pumpPoints.map((p) => p.head)
-      );
+      // maxHeadDischarge = Math.max(
+      //   maxHeadDischarge,
+      //   ...pumpPoints.map((p) => p.head)
+      // );
       // maxHeadDischarge = Math.max(
       //   maxHeadDischarge,
       //   ...combinedPumpPoints.map((p) => p.head)
