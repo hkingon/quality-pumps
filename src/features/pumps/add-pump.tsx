@@ -54,6 +54,7 @@ interface PumpFormData {
   is_public?: boolean;
   rpm: string;
   hz: string;
+  manualBepFlow?: string;
 }
 
 interface UploadedFiles {
@@ -88,6 +89,7 @@ const blankPump: PumpFormData = {
   is_public: false,
   rpm: '',
   hz: '',
+  manualBepFlow: ''
 };
 
 const dutyKeys: Record<string, string[]> = {
@@ -286,7 +288,8 @@ const AddPump: React.FC = () => {
         image: uploads.image || null,
         is_public: isAdmin ? pumpForm.is_public || false : false,
         rpm: parseFloat(pumpForm.rpm) || 0,
-        hz: parseFloat(pumpForm.hz) || 0
+        hz: parseFloat(pumpForm.hz) || 0,
+        manual_bep_flow: pumpForm.manualBepFlow ? parseFloat(pumpForm.manualBepFlow) : null,
       };
 
       // Save to Supabase table
@@ -856,6 +859,35 @@ const AddPump: React.FC = () => {
             </TabsContent>
 
             <TabsContent value='performance' className='space-y-4'>
+              <Card>
+                <CardHeader>
+                  <CardTitle className='flex items-center gap-2'>
+                    <Activity className='h-5 w-5' />
+                    Manual BEP Override
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-4'>
+                  <div className='space-y-2'>
+                    <Label htmlFor='manualBepFlow'>
+                      Manual BEP Flow Rate (Optional)
+                    </Label>
+                    <Input
+                      id='manualBepFlow'
+                      type='number'
+                      value={pumpForm.manualBepFlow || ''}
+                      onChange={(e) =>
+                        handleFormChange('manualBepFlow', e.target.value)
+                      }
+                      placeholder={`Enter manual BEP flow rate (${'L/min'})`}
+                    />
+                    <p className='text-muted-foreground text-sm'>
+                      If provided, this will override the automatically
+                      calculated BEP and define the solid line region (70%-120%
+                      of this flow rate).
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
               <Card>
                 <CardHeader>
                   <CardTitle className='flex items-center gap-2'>

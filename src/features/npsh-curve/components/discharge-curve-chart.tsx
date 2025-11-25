@@ -100,9 +100,6 @@ const generateDistinctColor = (index: number): string => {
 
 // Update the color selection in your functions
 const getPumpColor = (index: number): string => {
-  // if (index < pumpColors.length) {
-  //   return pumpColors[index];
-  // }
   return generateDistinctColor(index);
 };
 
@@ -121,9 +118,6 @@ const createChevronArrow = (color: string) => {
 
   ctx.save();
   ctx.translate(size / 2, size / 2);
-
-  // Rotate 90 degrees if you want it pointing upward
-  // ctx.rotate(Math.PI / 2);
 
   ctx.beginPath();
   ctx.moveTo(-4, -6);   // top-left

@@ -59,6 +59,7 @@ export interface PumpData {
   pvsq?: { head: number; flow: number }[];
   motor_power?: MotorPowerPoint[];
   efficiency?: EfficiencyPoint[];
+  manualBepFlow?: number | null;
 }
 
 export interface SystemCurveData {
@@ -96,6 +97,7 @@ export interface SavedPump {
   outlet?: number;
   maxTemp?: number;
   is_public?: boolean;
+  manualBepFlow?: number | null;
 }
 
 export interface PumpCurvePoint {

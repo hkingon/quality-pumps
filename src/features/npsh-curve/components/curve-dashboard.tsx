@@ -72,15 +72,6 @@ export function PumpCurveDashboard() {
     }
   ]);
 
-  // Suction System Curves for NPSH
-  // const [suctionCurveData, setSuctionCurveData] = useState<SuctionCurveData[]>([
-  //   {
-  //     id: '1',
-  //     staticPressure: 10.1325,
-  //     operatingFlow: 0,
-  //     operatingNpsha: 0
-  //   }
-  // ]);
   const [suctionCurveData, setSuctionCurveData] = useState<SuctionCurveData[]>(
     []
   );
@@ -149,6 +140,10 @@ export function PumpCurveDashboard() {
       prev.map((pump) => ({
         ...pump,
         maxFlow: convertFlow(pump.maxFlow, originalFlowUnit, newUnit),
+         manualBepFlow:
+        pump.manualBepFlow && pump.manualBepFlow > 0
+          ? convertFlow(pump.manualBepFlow, originalFlowUnit, newUnit)
+          : pump.manualBepFlow,
         // Fix: Convert efficiency and motor_power flow values
         efficiency:
           pump.efficiency?.map((point) => ({
@@ -219,21 +214,6 @@ export function PumpCurveDashboard() {
       }))
     );
 
-    // setSuctionCurveData((prev) =>
-    //   prev.map((suction) => ({
-    //     ...suction,
-    //     staticPressure: convertHead(
-    //       suction.staticPressure,
-    //       originalHeadUnit,
-    //       newUnit
-    //     ),
-    //     operatingNpsha: convertHead(
-    //       suction.operatingNpsha,
-    //       originalHeadUnit,
-    //       newUnit
-    //     )
-    //   }))
-    // );
 
     setOriginalHeadUnit(newUnit);
     setHeadUnit(newUnit);
@@ -372,8 +352,6 @@ export function PumpCurveDashboard() {
             )
           }));
           setSuctionCurveData(convertedCurves);
-          // setActiveTab('suction');
-          // localStorage.removeItem('suctionCurves');
         }
       } catch (error) {
         console.error('Error parsing suction curves from localStorage:', error);
@@ -416,7 +394,6 @@ export function PumpCurveDashboard() {
             headUnit
           );
 
-          // Static pressure = atmospheric pressure + static head
           const staticPressure = 10.1325 + staticHead;
 
           // Calculate operating NPSH available
@@ -569,9 +546,6 @@ export function PumpCurveDashboard() {
       if (!pump.maxHead || !pump.maxFlow) return;
 
       maxHeadDischarge = Math.max(maxHeadDischarge, pump.maxHead); // Update discharge max head
-      // maxFlowDischarge = Math.max(maxFlowDischarge, pump.maxFlow); // Update discharge max flow
-      // const combinedMaxFlow = pump.maxFlow * numberOfDutyPumps;
-      // maxFlowDischarge = Math.max(maxFlowDischarge, combinedMaxFlow);
       const individualMaxFlow = pump.maxFlow;
       const combinedMaxFlow = pump.maxFlow * numberOfDutyPumps;
       maxFlowDischarge = Math.max(
@@ -580,13 +554,14 @@ export function PumpCurveDashboard() {
         combinedMaxFlow
       );
 
-
       // -- Pump P vs Q Curve
-      let pumpPoints = [];
-      let combinedPumpPoints = [];
+      let pumpPoints: { flow: number; head: number }[] = [];
+      let combinedPumpPoints: { flow: number; head: number }[] = [];
+
       let bepFlow = 0;
       let bepHead = 0;
 
+      // FIRST: Generate pump points from pvsq data or formula
       if (pump.pvsq && pump.pvsq.length > 0) {
         pumpPoints = pump.pvsq.map((point) => ({
           flow: convertFlow(point.flow, 'L/min', flowUnit),
@@ -600,23 +575,9 @@ export function PumpCurveDashboard() {
 
         pumpPoints.sort((a, b) => a.flow - b.flow);
         combinedPumpPoints.sort((a, b) => a.flow - b.flow);
-
-        // Find BEP (maximum efficiency point)
-        let maxProduct = 0;
-        let bepIndex = 0;
-        pumpPoints.forEach((point, index) => {
-          const product = point.flow * point.head;
-          if (product > maxProduct) {
-            maxProduct = product;
-            bepIndex = index;
-          }
-        });
-        bepFlow = pumpPoints[bepIndex]?.flow || 0;
-        bepHead = pumpPoints[bepIndex]?.head || 0;
       } else {
         // Generate standard pump curve
         const numPoints = 100;
-        let maxProduct = 0;
         for (let i = 0; i <= numPoints; i++) {
           const flow = (pump.maxFlow * i) / numPoints;
           const head = pump.maxHead * (1 - Math.pow(flow / pump.maxFlow, 2));
@@ -624,29 +585,34 @@ export function PumpCurveDashboard() {
 
           const combinedFlow = flow * numberOfDutyPumps;
           combinedPumpPoints.push({ flow: combinedFlow, head });
-
-          const product = flow * head;
-          if (product > maxProduct) {
-            maxProduct = product;
-            bepFlow = flow;
-            bepHead = head;
-          }
         }
       }
 
-      // Update maxHeadDischarge with actual points if higher
-      // maxHeadDischarge = Math.max(
-      //   maxHeadDischarge,
-      //   ...pumpPoints.map((p) => p.head)
-      // );
-      // maxHeadDischarge = Math.max(
-      //   maxHeadDischarge,
-      //   ...pumpPoints.map((p) => p.head)
-      // );
-      // maxHeadDischarge = Math.max(
-      //   maxHeadDischarge,
-      //   ...combinedPumpPoints.map((p) => p.head)
-      // );
+      // SECOND: Now determine BEP (manual or automatic)
+      if (pump.manualBepFlow && pump.manualBepFlow > 0) {
+        // Use manual BEP
+        bepFlow = convertFlow(pump.manualBepFlow, 'L/min', flowUnit);
+
+        // Interpolate head at this flow rate
+        if (pumpPoints.length > 0) {
+          bepHead = interpolateHeadAtFlow(pumpPoints, bepFlow);
+        }
+      } else {
+        // Use automatic BEP calculation (maximum flow * head product)
+        let maxProduct = 0;
+        let bepIndex = 0;
+
+        pumpPoints.forEach((point, index) => {
+          const product = point.flow * point.head;
+          if (product > maxProduct) {
+            maxProduct = product;
+            bepIndex = index;
+          }
+        });
+
+        bepFlow = pumpPoints[bepIndex]?.flow || 0;
+        bepHead = pumpPoints[bepIndex]?.head || 0;
+      }
 
       newSegmentedPumpCurves.push(segmentCurve(pumpPoints, bepFlow));
       newSegmentedCombinedPumpCurves.push(
@@ -657,7 +623,6 @@ export function PumpCurveDashboard() {
         flow: bepFlow * numberOfDutyPumps,
         head: bepHead
       });
-
 
       if (pumpPoints.length > 0) {
         maxHeadDischarge = Math.max(
@@ -724,23 +689,6 @@ export function PumpCurveDashboard() {
           npshPoints = interpolatedPoints;
         }
       } else {
-        // Generate default NPSHr curve
-        // const numPoints = 200;
-        // let minNpshReq = Infinity;
-        // for (let i = 0; i <= numPoints; i++) {
-        //   const flow = (pump.maxFlow * i) / numPoints;
-        //   const head =
-        //     pump.maxHead *
-        //     0.05 *
-        //     (0.8 + 2.0 * Math.pow(flow / pump.maxFlow, 1.2));
-        //   npshPoints.push({ flow, head });
-        //   if (head < minNpshReq) {
-        //     minNpshReq = head;
-        //     npshBepFlow = flow;
-        //     npshBepHead = head;
-        //   }
-        // }
-
         npshPoints = [];
         npshBepFlow = 0;
         npshBepHead = 0;
@@ -859,11 +807,7 @@ export function PumpCurveDashboard() {
           points.push({ flow, head });
         }
         newDischargeSystemCurvePoints.push(points);
-        // maxFlowDischarge = Math.max(maxFlowDischarge, system.operatingFlow); // Update with operating flow
-        // maxHeadDischarge = Math.max(
-        //   maxHeadDischarge,
-        //   ...points.map((p) => p.head)
-        // ); // Update discharge max head
+        
       });
     }
 
@@ -971,6 +915,34 @@ export function PumpCurveDashboard() {
       return lowerPoint.head + ratio * (upperPoint.head - lowerPoint.head);
     }
   };
+
+
+  function interpolateHeadAtFlow(
+    points: PumpCurvePoint[],
+    targetFlow: number
+  ): number {
+    if (points.length === 0) return 0;
+    if (points.length === 1) return points[0].head;
+
+    let lowerPoint = points[0];
+    let upperPoint = points[points.length - 1];
+
+    for (let i = 0; i < points.length - 1; i++) {
+      if (points[i].flow <= targetFlow && points[i + 1].flow >= targetFlow) {
+        lowerPoint = points[i];
+        upperPoint = points[i + 1];
+        break;
+      }
+    }
+
+    if (lowerPoint.flow === upperPoint.flow) {
+      return lowerPoint.head;
+    }
+
+    const ratio =
+      (targetFlow - lowerPoint.flow) / (upperPoint.flow - lowerPoint.flow);
+    return lowerPoint.head + ratio * (upperPoint.head - lowerPoint.head);
+  }
 
   // Helper function to segment curves
   const segmentCurve = (
@@ -1168,6 +1140,9 @@ export function PumpCurveDashboard() {
       newSpeed: savedPump.newSpeed
         ? convertFlow(savedPump.newSpeed, savedPump.flowUnit, flowUnit)
         : undefined,
+      manualBepFlow: savedPump.manualBepFlow
+      ? convertFlow(savedPump.manualBepFlow, savedPump.flowUnit, flowUnit)
+      : null,
       pvsq: savedPump.pvsq || [],
       npshRequired: savedPump.npshRequired || [],
       motor_power: savedPump.motorPower || [],
@@ -1240,6 +1215,7 @@ export function PumpCurveDashboard() {
       phases: pump.phases,
       maxTemp: pump.max_temp,
       efficiency: pump.efficiency || [],
+      manualBepFlow: pump.manual_bep_flow || undefined,
       motorPower: pump.motor_power || [],
       is_public: pump.is_public || false
     };
