@@ -60,6 +60,12 @@ export interface PumpData {
   motor_power?: MotorPowerPoint[];
   efficiency?: EfficiencyPoint[];
   manualBepFlow?: number | null;
+
+  baseRpm?: number;
+  baseHz?: number;
+  currentRpm?: number;
+  currentHz?: number;
+  speedAdjustmentEnabled?: boolean;
 }
 
 export interface SystemCurveData {
@@ -98,6 +104,8 @@ export interface SavedPump {
   maxTemp?: number;
   is_public?: boolean;
   manualBepFlow?: number | null;
+  rpm?: number | null;
+  hz?: number | null;
 }
 
 export interface PumpCurvePoint {

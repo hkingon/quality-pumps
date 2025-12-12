@@ -32,11 +32,83 @@ import {
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/contexts/auth-context';
 import { Input } from '@/components/ui/input';
+import { MotorSpeedControl } from './MotorSpeedControl';
+import { Zap } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 interface PerformancePoint {
   head: number;
   flow: number;
 }
+
+
+  interface EnergySavingsDisplayProps {
+    baseRpm: number;
+    currentRpm: number;
+    basePower: number; // Power at BEP, base speed
+    operatingHoursPerDay?: number;
+    electricityCostPerKwh?: number;
+  }
+
+  function EnergySavingsDisplay({
+    baseRpm,
+    currentRpm,
+    basePower,
+    operatingHoursPerDay = 24,
+    electricityCostPerKwh = 0.15
+  }: EnergySavingsDisplayProps) {
+    const speedRatio = currentRpm / baseRpm;
+    const powerRatio = Math.pow(speedRatio, 3);
+    const currentPower = basePower * powerRatio;
+    const powerSavings = basePower - currentPower;
+    const percentSavings = ((1 - powerRatio) * 100).toFixed(1);
+
+    const dailySavings =
+      powerSavings * operatingHoursPerDay * electricityCostPerKwh;
+    const annualSavings = dailySavings * 365;
+
+    if (speedRatio >= 0.99 && speedRatio <= 1.01) {
+      return null; // No significant speed change
+    }
+
+    return (
+      <div className='bg-card rounded-lg border p-4 text-sm'>
+        <h4 className='mb-2 flex items-center gap-2 font-semibold'>
+          <Zap className='h-4 w-4' />
+          Energy Impact
+        </h4>
+        <div className='grid grid-cols-2 gap-3'>
+          <div>
+            <p className='text-muted-foreground text-xs'>Power at Base Speed</p>
+            <p className='font-medium'>{basePower.toFixed(2)} kW</p>
+          </div>
+          <div>
+            <p className='text-muted-foreground text-xs'>
+              Power at Current Speed
+            </p>
+            <p className='font-medium'>{currentPower.toFixed(2)} kW</p>
+          </div>
+          <div>
+            <p className='text-muted-foreground text-xs'>Power Change</p>
+            <Badge variant={powerSavings > 0 ? 'default' : 'destructive'}>
+              {powerSavings > 0 ? '-' : '+'}
+              {Math.abs(powerSavings).toFixed(2)} kW ({percentSavings}%)
+            </Badge>
+          </div>
+          <div>
+            <p className='text-muted-foreground text-xs'>Annual Savings</p>
+            <p className='font-medium text-green-600'>
+              ${annualSavings.toFixed(0)}/year
+            </p>
+          </div>
+        </div>
+        <p className='text-muted-foreground mt-2 text-xs'>
+          Based on {operatingHoursPerDay}h/day @ ${electricityCostPerKwh}/kWh
+        </p>
+      </div>
+    );
+  }
+
 
 export function PumpCurveDashboard() {
   const searchParams = useSearchParams();
@@ -45,6 +117,16 @@ export function PumpCurveDashboard() {
   const [headUnit, setHeadUnit] = useState<HeadUnit>('m');
   const [originalFlowUnit, setOriginalFlowUnit] = useState<FlowUnit>('L/min');
   const [originalHeadUnit, setOriginalHeadUnit] = useState<HeadUnit>('m');
+
+  const [motorSpeedControls, setMotorSpeedControls] = useState<{
+    [pumpId: string]: {
+      baseRpm: number;
+      baseHz: number;
+      currentRpm: number;
+      currentHz: number;
+      enabled: boolean;
+    };
+  }>({});
 
   const [segmentedPumpCurves, setSegmentedPumpCurves] = useState<
     SegmentedPumpCurve[]
@@ -218,6 +300,65 @@ export function PumpCurveDashboard() {
     setOriginalHeadUnit(newUnit);
     setHeadUnit(newUnit);
   };
+
+  const handleMotorSpeedChange = (pumpId: string, rpm: number, hz: number) => {
+    setMotorSpeedControls((prev) => ({
+      ...prev,
+      [pumpId]: {
+        ...prev[pumpId],
+        currentRpm: rpm,
+        currentHz: hz
+      }
+    }));
+
+    // Update the active pump with new speed settings
+    setActiveSavedPumps((prev) =>
+      prev.map((pump) => {
+        if (pump.id === pumpId) {
+          const speedRatio = rpm / (pump.baseRpm || 2900);
+          return {
+            ...pump,
+            currentRpm: rpm,
+            currentHz: hz,
+            // Store the old and new speeds for affinity law calculations
+            oldSpeed: pump.baseRpm || 2900,
+            newSpeed: rpm
+          };
+        }
+        return pump;
+      })
+    );
+  };
+
+  // 3. ADD enableSpeedAdjustment handler
+  const handleSpeedEnabledChange = (pumpId: string, enabled: boolean) => {
+    setMotorSpeedControls((prev) => ({
+      ...prev,
+      [pumpId]: {
+        ...prev[pumpId],
+        enabled
+      }
+    }));
+
+    // If disabling, reset to base speed
+    if (!enabled) {
+      setActiveSavedPumps((prev) =>
+        prev.map((pump) => {
+          if (pump.id === pumpId) {
+            return {
+              ...pump,
+              currentRpm: pump.baseRpm,
+              currentHz: pump.baseHz,
+              oldSpeed: undefined,
+              newSpeed: undefined
+            };
+          }
+          return pump;
+        })
+      );
+    }
+  };
+
 
   useEffect(() => {
     if (activeSavedPumps.length > 0) {
@@ -545,9 +686,17 @@ export function PumpCurveDashboard() {
     activeSavedPumps.forEach((pump) => {
       if (!pump.maxHead || !pump.maxFlow) return;
 
-      maxHeadDischarge = Math.max(maxHeadDischarge, pump.maxHead); // Update discharge max head
-      const individualMaxFlow = pump.maxFlow;
-      const combinedMaxFlow = pump.maxFlow * numberOfDutyPumps;
+      const hasSpeedChange =
+        pump.currentRpm && pump.baseRpm && pump.currentRpm !== pump.baseRpm;
+      const speedRatio = hasSpeedChange ? pump.currentRpm! / pump.baseRpm! : 1;
+
+      // Apply affinity laws to max values
+      const adjustedMaxFlow = pump.maxFlow * speedRatio;
+      const adjustedMaxHead = pump.maxHead * speedRatio ** 2;
+
+      maxHeadDischarge = Math.max(maxHeadDischarge, adjustedMaxHead);
+      const individualMaxFlow = adjustedMaxFlow;
+      const combinedMaxFlow = adjustedMaxFlow * numberOfDutyPumps;
       maxFlowDischarge = Math.max(
         maxFlowDischarge,
         individualMaxFlow,
@@ -564,13 +713,17 @@ export function PumpCurveDashboard() {
       // FIRST: Generate pump points from pvsq data or formula
       if (pump.pvsq && pump.pvsq.length > 0) {
         pumpPoints = pump.pvsq.map((point) => ({
-          flow: convertFlow(point.flow, 'L/min', flowUnit),
-          head: convertHead(point.head, 'm', headUnit)
+          flow: convertFlow(point.flow * speedRatio, 'L/min', flowUnit),
+          head: convertHead(point.head * speedRatio ** 2, 'm', headUnit)
         }));
 
         combinedPumpPoints = pump.pvsq.map((point) => ({
-          flow: convertFlow(point.flow * numberOfDutyPumps, 'L/min', flowUnit),
-          head: convertHead(point.head, 'm', headUnit) // Head stays the same
+          flow: convertFlow(
+            point.flow * speedRatio * numberOfDutyPumps,
+            'L/min',
+            flowUnit
+          ),
+          head: convertHead(point.head * speedRatio ** 2, 'm', headUnit)
         }));
 
         pumpPoints.sort((a, b) => a.flow - b.flow);
@@ -579,8 +732,14 @@ export function PumpCurveDashboard() {
         // Generate standard pump curve
         const numPoints = 100;
         for (let i = 0; i <= numPoints; i++) {
-          const flow = (pump.maxFlow * i) / numPoints;
-          const head = pump.maxHead * (1 - Math.pow(flow / pump.maxFlow, 2));
+          const baseFlow = (pump.maxFlow * i) / numPoints;
+          const baseHead =
+            pump.maxHead * (1 - Math.pow(baseFlow / pump.maxFlow, 2));
+
+          // Apply affinity laws
+          const flow = baseFlow * speedRatio;
+          const head = baseHead * speedRatio ** 2;
+
           pumpPoints.push({ flow, head });
 
           const combinedFlow = flow * numberOfDutyPumps;
@@ -590,10 +749,11 @@ export function PumpCurveDashboard() {
 
       // SECOND: Now determine BEP (manual or automatic)
       if (pump.manualBepFlow && pump.manualBepFlow > 0) {
-        // Use manual BEP
-        bepFlow = convertFlow(pump.manualBepFlow, 'L/min', flowUnit);
-
-        // Interpolate head at this flow rate
+        bepFlow = convertFlow(
+          pump.manualBepFlow * speedRatio,
+          'L/min',
+          flowUnit
+        );
         if (pumpPoints.length > 0) {
           bepHead = interpolateHeadAtFlow(pumpPoints, bepFlow);
         }
@@ -653,8 +813,8 @@ export function PumpCurveDashboard() {
 
       if (pump.npshRequired && pump.npshRequired.length > 0) {
         npshPoints = pump.npshRequired.map((point) => ({
-          flow: convertFlow(point.flow, 'L/min', flowUnit),
-          head: convertHead(point.head, 'm', headUnit)
+          flow: convertFlow(point.flow * speedRatio, 'L/min', flowUnit),
+          head: convertHead(point.head * speedRatio ** 2, 'm', headUnit)
         }));
         npshPoints.sort((a, b) => a.flow - b.flow);
 
@@ -669,119 +829,17 @@ export function PumpCurveDashboard() {
         });
         npshBepFlow = npshPoints[npshBepIndex]?.flow || 0;
         npshBepHead = npshPoints[npshBepIndex]?.head || 0;
-
-        // Interpolate if needed
-        if (npshPoints.length < 10) {
-          const interpolatedPoints = [];
-          const minFlow = Math.min(...npshPoints.map((p) => p.flow));
-          const maxFlow = Math.max(...npshPoints.map((p) => p.flow));
-          for (let i = 0; i <= 50; i++) {
-            const targetFlow = minFlow + (maxFlow - minFlow) * (i / 50);
-            const interpolatedHead = interpolateNpshValue(
-              npshPoints,
-              targetFlow
-            );
-            interpolatedPoints.push({
-              flow: targetFlow,
-              head: interpolatedHead
-            });
-          }
-          npshPoints = interpolatedPoints;
-        }
-      } else {
-        npshPoints = [];
-        npshBepFlow = 0;
-        npshBepHead = 0;
       }
-
-      // Include in min/max NPSH calculations
       if (npshPoints.length > 0) {
         const npshMinVal = Math.min(...npshPoints.map((p) => p.head));
         const npshMaxVal = Math.max(...npshPoints.map((p) => p.head));
         minNpsh = Math.min(minNpsh, npshMinVal);
-        maxNpshNpsh = Math.max(maxNpshNpsh, npshMaxVal); // Update NPSH max
+        maxNpshNpsh = Math.max(maxNpshNpsh, npshMaxVal);
       }
+      maxFlowNpsh = Math.max(maxFlowNpsh, adjustedMaxFlow);
 
-      maxFlowNpsh = Math.max(maxFlowNpsh, pump.maxFlow); // Update NPSH max flow
       newSegmentedNpshCurves.push(segmentCurve(npshPoints, npshBepFlow));
       newNpshBepPoints.push({ flow: npshBepFlow, head: npshBepHead });
-
-      // --- Modified speed curves ---
-      if (
-        pump.oldSpeed &&
-        pump.newSpeed &&
-        pump.oldSpeed > 0 &&
-        pump.newSpeed > 0 &&
-        pump.newSpeed !== pump.oldSpeed
-      ) {
-        const ratio = pump.newSpeed / pump.oldSpeed;
-        const headRatio = ratio * ratio;
-
-        // Modified NPSHr
-        let modifiedNpshPoints = [];
-        let modifiedNpshBepFlow = 0;
-        let modifiedNpshBepHead = 0;
-
-        const modifiedMaxFlow = pump.maxFlow * ratio;
-
-        if (pump.npshRequired && pump.npshRequired.length > 0) {
-          modifiedNpshPoints = pump.npshRequired.map((point) => ({
-            flow: convertFlow(point.flow * ratio, 'L/min', flowUnit),
-            head: convertHead(point.head * headRatio, 'm', headUnit)
-          }));
-          modifiedNpshPoints.sort((a, b) => a.flow - b.flow);
-
-          let modMinNpsh = Infinity;
-          let modIdx = 0;
-          modifiedNpshPoints.forEach((point, idx) => {
-            if (point.head < modMinNpsh) {
-              modMinNpsh = point.head;
-              modIdx = idx;
-            }
-          });
-          modifiedNpshBepFlow = modifiedNpshPoints[modIdx]?.flow || 0;
-          modifiedNpshBepHead = modifiedNpshPoints[modIdx]?.head || 0;
-        } else {
-          const numPoints = 100;
-          let modMinNpsh = Infinity;
-          for (let i = 0; i <= numPoints; i++) {
-            const flow = (modifiedMaxFlow * i) / numPoints;
-            const head =
-              pump.maxHead *
-              0.05 *
-              (0.8 + 2.0 * Math.pow(flow / modifiedMaxFlow, 1.2)) *
-              headRatio;
-            modifiedNpshPoints.push({ flow, head });
-            if (head < modMinNpsh) {
-              modMinNpsh = head;
-              modifiedNpshBepFlow = flow;
-              modifiedNpshBepHead = head;
-            }
-          }
-        }
-
-        // Include in min/max NPSH calculations
-        if (modifiedNpshPoints.length > 0) {
-          const modNpshMin = Math.min(...modifiedNpshPoints.map((p) => p.head));
-          const modNpshMax = Math.max(...modifiedNpshPoints.map((p) => p.head));
-          minNpsh = Math.min(minNpsh, modNpshMin);
-          maxNpshNpsh = Math.max(maxNpshNpsh, modNpshMax); // Update NPSH max
-        }
-
-        maxFlowNpsh = Math.max(maxFlowNpsh, modifiedMaxFlow); // Update NPSH max flow for modified curve
-        newSegmentedModifiedNpshCurves.push(
-          segmentCurve(modifiedNpshPoints, modifiedNpshBepFlow)
-        );
-        newModifiedNpshBepPoints.push({
-          flow: modifiedNpshBepFlow,
-          head: modifiedNpshBepHead
-        });
-      } else {
-        newSegmentedModifiedPumpCurves.push({ start: [], middle: [], end: [] });
-        newModifiedBepPoints.push({ flow: 0, head: 0 });
-        newSegmentedModifiedNpshCurves.push({ start: [], middle: [], end: [] });
-        newModifiedNpshBepPoints.push({ flow: 0, head: 0 });
-      }
     });
 
     // --- Discharge system curves (unchanged) ---
@@ -1129,9 +1187,29 @@ export function PumpCurveDashboard() {
   };
 
   const addSavedPumpToChart = (savedPump: SavedPump) => {
+    console.log('Adding saved pump to chart:', savedPump);
+    const baseRpm = savedPump.rpm || 2900;
+    const baseHz = savedPump.hz || 50;
+
+    // Initialize motor speed control for this pump
+    setMotorSpeedControls((prev) => ({
+      ...prev,
+      [savedPump.id]: {
+        baseRpm,
+        baseHz,
+        currentRpm: baseRpm,
+        currentHz: baseHz,
+        enabled: false
+      }
+    }));
+
     const newPump = {
       id: savedPump.id,
       name: savedPump.name,
+      baseRpm,
+      baseHz,
+      currentRpm: baseRpm,
+      currentHz: baseHz,
       maxHead: convertHead(savedPump.maxHead, savedPump.headUnit, headUnit),
       maxFlow: convertFlow(savedPump.maxFlow, savedPump.flowUnit, flowUnit),
       oldSpeed: savedPump.oldSpeed
@@ -1141,8 +1219,8 @@ export function PumpCurveDashboard() {
         ? convertFlow(savedPump.newSpeed, savedPump.flowUnit, flowUnit)
         : undefined,
       manualBepFlow: savedPump.manualBepFlow
-      ? convertFlow(savedPump.manualBepFlow, savedPump.flowUnit, flowUnit)
-      : null,
+        ? convertFlow(savedPump.manualBepFlow, savedPump.flowUnit, flowUnit)
+        : null,
       pvsq: savedPump.pvsq || [],
       npshRequired: savedPump.npshRequired || [],
       motor_power: savedPump.motorPower || [],
@@ -1206,6 +1284,8 @@ export function PumpCurveDashboard() {
       brand: pump.brand,
       model: pump.model,
       kw: pump.kw,
+      rpm: pump.rpm,
+      hz: pump.hz,
       inlet: pump.inlet,
       outlet: pump.outlet,
       configuration: pump.configuration,
@@ -1397,6 +1477,62 @@ export function PumpCurveDashboard() {
                 </span>
               )}
             </div>
+
+            {activeSavedPumps.length > 0 && (
+              <div className='space-y-3'>
+                <h3 className='text-sm font-semibold'>
+                  Motor Speed Adjustment (Affinity Laws)
+                </h3>
+
+                {activeSavedPumps.map((pump) => {
+                  const control = motorSpeedControls[pump.id];
+                  if (!control) return null;
+
+                  // Render MotorSpeedControl ALWAYS
+                  return (
+                    <div key={pump.id}>
+                      <MotorSpeedControl
+                        pumpId={pump.id}
+                        pumpName={pump.name || 'Unnamed Pump'}
+                        baseRpm={control.baseRpm}
+                        baseHz={control.baseHz}
+                        currentRpm={control.currentRpm}
+                        currentHz={control.currentHz}
+                        enabled={control.enabled}
+                        onSpeedChange={handleMotorSpeedChange}
+                        onEnabledChange={handleSpeedEnabledChange}
+                      />
+
+                      {/* Conditionally render EnergySavingsDisplay */}
+                      {/* {pump.motor_power &&
+                        pump.motor_power.length > 0 &&
+                        (() => {
+                          let maxProduct = 0;
+                          let bepPower = 0;
+
+                          pump.motor_power.forEach((point) => {
+                            const product = point.flow * point.kw;
+                            if (product > maxProduct) {
+                              maxProduct = product;
+                              bepPower = point.kw;
+                            }
+                          });
+
+                          return (
+                            <EnergySavingsDisplay
+                              baseRpm={pump.baseRpm || 2900}
+                              currentRpm={
+                                pump.currentRpm || pump.baseRpm || 2900
+                              }
+                              basePower={bepPower}
+                            />
+                          );
+                        })()} */}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             <div ref={chartRef}>
               <DischargeCurveChart

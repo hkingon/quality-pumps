@@ -12,8 +12,10 @@ import {
   ScatterController
 } from 'chart.js';
 import { Button } from '@/components/ui/button';
-import { Download } from 'lucide-react';
+import { Download, Zap } from 'lucide-react';
 import { PumpData, SystemCurveData } from '@/types';
+import { Badge } from '@/components/ui/badge';
+import { get } from 'http';
 
 ChartJS.register(
   LineElement,
@@ -268,11 +270,25 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
   const addMotorPowerCurves = () => {
     pumpData.forEach((pump, index) => {
       if (pump.motor_power && pump.motor_power.length > 0) {
-        const sortedData = [...pump.motor_power].sort(
-          (a, b) => a.flow - b.flow
-        );
+        // Calculate speed ratio for affinity laws
+        const hasSpeedChange =
+          pump.currentRpm && pump.baseRpm && pump.currentRpm !== pump.baseRpm;
+        const speedRatio = hasSpeedChange
+          ? pump.currentRpm! / pump.baseRpm!
+          : 1;
+        const powerMultiplier = Math.pow(speedRatio, 3); // Power ∝ Speed³
+
+        // Apply affinity laws to motor power data
+        const sortedData = [...pump.motor_power]
+          .map((point) => ({
+            flow: point.flow * speedRatio, // Flow ∝ Speed
+            kw: point.kw * powerMultiplier // Power ∝ Speed³
+          }))
+          .sort((a, b) => a.flow - b.flow);
+
+        // Create the dataset
         datasets.push({
-          label: `${pump.name} (Power)`,
+          label: `${pump.name} (Power${speedRatio !== 1 ? ` @ ${(speedRatio * 100).toFixed(0)}%` : ''})`,
           data: sortedData.map((point) => ({
             x: point.flow,
             y: point.kw
@@ -282,8 +298,37 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
           pointRadius: 0,
           fill: false,
           tension: 0.4,
-          yAxisID: 'y1'
+          yAxisID: 'y1',
+          borderDash: speedRatio !== 1 ? [5, 5] : [], // Dashed line for adjusted speed
+          backgroundColor:
+            speedRatio !== 1
+              ? motorPowerColors[index % motorPowerColors.length] + '50'
+              : motorPowerColors[index % motorPowerColors.length]
         });
+
+        // Optionally show the original curve as reference when speed is adjusted
+        if (speedRatio !== 1) {
+          const originalData = [...pump.motor_power].sort(
+            (a, b) => a.flow - b.flow
+          );
+
+          datasets.push({
+            label: `${pump.name} (Power @ 100% - Reference)`,
+            data: originalData.map((point) => ({
+              x: point.flow,
+              y: point.kw
+            })),
+            borderColor: getPumpColor(index),
+            borderWidth: 1,
+            pointRadius: 0,
+            fill: false,
+            tension: 0.4,
+            yAxisID: 'y1',
+            borderDash: [2, 2], // Dotted for reference
+            backgroundColor: 'transparent',
+            hidden: false // Show by default, user can toggle in legend
+          });
+        }
       }
     });
   };
@@ -292,16 +337,24 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
   const addEfficiencyCurves = () => {
     pumpData.forEach((pump, index) => {
       if (pump.efficiency && pump.efficiency.length > 0) {
+        // Calculate speed ratio
+        const hasSpeedChange =
+          pump.currentRpm && pump.baseRpm && pump.currentRpm !== pump.baseRpm;
+        const speedRatio = hasSpeedChange
+          ? pump.currentRpm! / pump.baseRpm!
+          : 1;
+
+        // Efficiency curve shape remains the same, but flow values shift
         const processedData = pump.efficiency
           .map((point) => ({
-            flow: parseFloat(point.flow),
-            efficiency: parseFloat(point.eff)
+            flow: parseFloat(point.flow) * speedRatio, // Adjust flow
+            efficiency: parseFloat(point.eff) // Efficiency unchanged
           }))
           .filter((point) => !isNaN(point.flow) && !isNaN(point.efficiency))
           .sort((a, b) => a.flow - b.flow);
 
         datasets.push({
-          label: `${pump.name} (Efficiency)`,
+          label: `${pump.name} (Efficiency${speedRatio !== 1 ? ` @ ${(speedRatio * 100).toFixed(0)}%` : ''})`,
           data: processedData.map((point) => ({
             x: point.flow,
             y: point.efficiency
@@ -311,7 +364,8 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
           pointRadius: 0,
           fill: false,
           tension: 0.4,
-          yAxisID: 'y1'
+          yAxisID: 'y1',
+          borderDash: speedRatio !== 1 ? [5, 5] : []
         });
       }
     });
@@ -362,7 +416,8 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
         backgroundColor: dischargeColors[index % dischargeColors.length],
         pointRadius: 8,
         // pointStyle: 'triangle',
-        pointStyle: () => createChevronArrow(dischargeColors[index % dischargeColors.length]),
+        pointStyle: () =>
+          createChevronArrow(dischargeColors[index % dischargeColors.length]),
         // pointRotation: 90,
         type: 'scatter',
         showLine: false,
@@ -478,7 +533,42 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
       ),
     100
   );
-  const maxSecondary = Math.max(maxPower, maxEfficiency);
+  // const maxSecondary = Math.max(maxPower, maxEfficiency);
+
+  
+  const getSecondaryAxisMax = () => {
+    let maxPower = 0;
+    let maxEfficiency = 0;
+
+    pumpData.forEach((pump) => {
+      // Calculate speed ratio
+      const speedRatio =
+        pump.currentRpm && pump.baseRpm ? pump.currentRpm / pump.baseRpm : 1;
+      const powerMultiplier = Math.pow(speedRatio, 3);
+
+      // Find max power considering speed adjustment
+      if (pump.motor_power && pump.motor_power.length > 0) {
+        const adjustedMaxPower = Math.max(
+          ...pump.motor_power.map((p) => p.kw * powerMultiplier)
+        );
+        maxPower = Math.max(maxPower, adjustedMaxPower);
+      }
+
+      // Efficiency doesn't change with speed
+      if (pump.efficiency && pump.efficiency.length > 0) {
+        const pumpMaxEff = Math.max(
+          ...pump.efficiency.map((e) => parseFloat(e.eff))
+        );
+        maxEfficiency = Math.max(maxEfficiency, pumpMaxEff);
+      }
+    });
+
+    return Math.max(maxPower, maxEfficiency);
+  };
+
+  // Use this in your component:
+  const maxSecondary = getSecondaryAxisMax();
+
 
   const options: ChartOptions<'line'> = {
     responsive: true,
@@ -492,44 +582,51 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
         position: 'bottom',
         title: {
           display: true,
-          text: `Flow (${flowUnit || 'L/min'})`
+          text: `Flow (${flowUnit || 'L/min'})`,
+          font: { size: 14, weight: 'bold' }
         },
         min: 0,
         max: maxFlow || 100
-        // max: overallMaxFlow || 100
       },
       y: {
         type: 'linear',
         position: 'left',
         title: {
           display: true,
-          text: `Head (${headUnit || 'm'})`
+          text: `Head (${headUnit || 'm'})`,
+          font: { size: 14, weight: 'bold' }
         },
         min: 0,
-        // max: overallMaxHead || 150
-        max: maxHead || 150
+        max: maxHead || 150,
+        grid: {
+          color: 'rgba(0, 0, 0, 0.1)'
+        }
       },
       y1: {
         type: 'linear',
         position: 'right',
         title: {
           display: true,
-          text: 'Power (kW) / Efficiency (%)'
+          text: 'Power (kW) / Efficiency (%)',
+          font: { size: 14, weight: 'bold' }
         },
         min: 0,
         max: Math.ceil(maxSecondary / 10) * 10,
         grid: {
-          drawOnChartArea: false
+          drawOnChartArea: false // Don't overlay grid lines
+        },
+        ticks: {
+          callback: function (value) {
+            return value;
+          }
         }
       }
     },
     plugins: {
       title: {
         display: true,
-        text: 'Discharge Curve Analysis (P vs Q, Power, Efficiency)',
-        font: {
-          size: 18
-        }
+        text: 'Discharge Curve Analysis (PvsQ, Power, Efficiency)',
+        font: { size: 18, weight: 'bold' }
       },
       tooltip: {
         callbacks: {
@@ -540,13 +637,35 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
           label: (context) => {
             const label = context.dataset.label || '';
             const yValue = context.parsed.y;
+
             if (label.includes('Power')) {
               return `${label}: ${yValue.toFixed(2)} kW`;
             } else if (label.includes('Efficiency')) {
-              return `${label}: ${yValue.toFixed(2)} %`;
+              return `${label}: ${yValue.toFixed(2)}%`;
+            } else if (label.includes('Head')) {
+              return `${label}: ${yValue.toFixed(2)} ${headUnit || 'm'}`;
             } else {
               return `${label}: ${yValue.toFixed(2)} ${headUnit || 'm'}`;
             }
+          },
+          afterBody: (tooltipItems) => {
+            const context = tooltipItems[0];
+            const datasetIndex = context.datasetIndex;
+            const pump = pumpData[Math.floor(datasetIndex / 4)]; // Approximate pump index
+
+            if (
+              pump?.currentRpm &&
+              pump?.baseRpm &&
+              pump.currentRpm !== pump.baseRpm
+            ) {
+              const speedRatio = pump.currentRpm / pump.baseRpm;
+              return [
+                '',
+                `Speed: ${(speedRatio * 100).toFixed(0)}% of base`,
+                `RPM: ${pump.currentRpm.toFixed(0)} / ${pump.baseRpm.toFixed(0)}`
+              ];
+            }
+            return [];
           }
         }
       },
@@ -556,14 +675,16 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
         labels: {
           filter: (legendItem, chartData) => {
             const datasetLabel = legendItem.text;
+            // Show pump curves, power, efficiency, but hide BEP and operating points from legend
             return (
-              (datasetLabel.includes('Discharge Curve') &&
-                !datasetLabel.includes('Operating Point')) ||
-              (datasetLabel.includes('Head') &&
-                !datasetLabel.includes('OperatingPoint') &&
-                !datasetLabel.includes('BEP'))
+              !datasetLabel.includes('BEP') &&
+              !datasetLabel.includes('Operating Point')
             );
-          }
+          },
+          usePointStyle: true,
+          boxWidth: 15,
+          padding: 10,
+          font: { size: 11 }
         }
       }
     }

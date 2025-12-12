@@ -24,3 +24,16 @@ export function formatBytes(
       : (sizes[i] ?? 'Bytes')
   }`;
 }
+
+
+export function calculateHzFromRpm(rpm: number, baseRpm: number, baseHz: number): number {
+  return (rpm / baseRpm) * baseHz;
+}
+
+export function calculateRpmFromHz(hz: number, baseHz: number, baseRpm: number): number {
+  return (hz / baseHz) * baseRpm;
+}
+
+export function getSpeedRatio(currentRpm: number, baseRpm: number): number {
+  return currentRpm / baseRpm;
+}
