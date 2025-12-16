@@ -26,7 +26,9 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
@@ -37,6 +39,8 @@ import {
   DialogTitle,
   DialogTrigger
 } from '@/components/ui/dialog';
+import { APPLICATION_OPTIONS, IMPELLER_TYPE_OPTIONS, INSTALLATION_CONFIG_OPTIONS, OTHER_TRAITS_OPTIONS, POLE_OPTIONS, PUMP_CLASS_OPTIONS } from '@/types/filters';
+import { MultiSelectFilter } from '@/components/multi-select-filter';
 
 // Define interfaces for type safety
 interface DutyPoint {
@@ -77,6 +81,13 @@ interface PumpFormData {
   rpm: string;
   hz: string;
   manualBepFlow?: string;
+
+  pumpClass?: string;
+  application?: string;
+  impellerType?: string;
+  otherTraits?: string[];
+  minTemp?: number | null;
+  poles?: number | null;
 }
 
 interface UploadedFiles {
@@ -177,7 +188,15 @@ const blankPump: PumpFormData = {
   is_public: false,
   rpm: '',
   hz: '',
-  manualBepFlow: ''
+  manualBepFlow: '',
+
+  pumpClass: '',
+  application: '',
+  impellerType: '',
+  otherTraits: [] as string[],
+  poles: null as number | null,
+  minTemp: null as number | null,
+
 };
 
 const dutyKeys: Record<string, string[]> = {
@@ -287,6 +306,13 @@ const EditPump: React.FC = () => {
         rpm: pump.rpm.toString(),
         hz: pump.hz.toString(),
         manualBepFlow: pump.manual_bep_flow?.toString() || '',
+
+        pumpClass: data.pump_class || '',
+        application: data.application || '',
+        impellerType: data.impeller_type || '',
+        otherTraits: data.other_traits || [],
+        poles: data.poles || null,
+        minTemp: data.min_temp || null,
       });
 
       const handleExistingCustomValues = () => {
@@ -641,6 +667,15 @@ const EditPump: React.FC = () => {
         rpm: parseFloat(pumpForm.rpm) || 0,
         hz: parseFloat(pumpForm.hz) || 0,
         manual_bep_flow: pumpForm.manualBepFlow ? parseFloat(pumpForm.manualBepFlow) : null,
+
+        pump_class: pumpForm.pumpClass || null,
+        application: pumpForm.application || null,
+        impeller_type: pumpForm.impellerType || null,
+        other_traits: pumpForm.otherTraits?.length
+          ? pumpForm.otherTraits
+          : null,
+        poles: pumpForm.poles,
+        min_temp: pumpForm.minTemp,
       };
 
       // Update pump in Supabase
@@ -904,6 +939,189 @@ const EditPump: React.FC = () => {
                       </div>
                     )}
                   </div>
+
+                  <>
+                    {/* Classification Section */}
+                    <div className='col-span-2'>
+                      <h3 className='mb-4 border-b pb-2 text-lg font-semibold'>
+                        Pump Classification
+                      </h3>
+                    </div>
+
+                    {/* Pump Class - Hierarchical Select */}
+                    <div className='space-y-2'>
+                      <Label htmlFor='pumpClass'>
+                        Pump Class <span className='text-red-500'>*</span>
+                      </Label>
+                      <Select
+                        value={pumpForm.pumpClass}
+                        onValueChange={(value) =>
+                          setPumpForm((prev) => ({ ...prev, pumpClass: value }))
+                        }
+                      >
+                        <SelectTrigger id='pumpClass'>
+                          <SelectValue placeholder='Select pump class...' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='null'>None</SelectItem>
+                          {Object.entries(PUMP_CLASS_OPTIONS).map(
+                            ([category, items]) => (
+                              <SelectGroup key={category}>
+                                <SelectLabel className='font-bold'>
+                                  {category}
+                                </SelectLabel>
+                                {items.map((item) => (
+                                  <SelectItem key={item} value={item}>
+                                    {item}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            )
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <p className='text-muted-foreground text-xs'>
+                        Primary pump classification category
+                      </p>
+                    </div>
+
+                    {/* Application */}
+                    <div className='space-y-2'>
+                      <Label htmlFor='application'>Application</Label>
+                      <Select
+                        value={pumpForm.application}
+                        onValueChange={(value) =>
+                          setPumpForm((prev) => ({
+                            ...prev,
+                            application: value
+                          }))
+                        }
+                      >
+                        <SelectTrigger id='application'>
+                          <SelectValue placeholder='Select application...' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='null'>None</SelectItem>
+                          {APPLICATION_OPTIONS.map((app) => (
+                            <SelectItem key={app} value={app}>
+                              {app}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Impeller Type */}
+                    <div className='space-y-2'>
+                      <Label htmlFor='impellerType'>Impeller Type</Label>
+                      <Select
+                        value={pumpForm.impellerType}
+                        onValueChange={(value) =>
+                          setPumpForm((prev) => ({
+                            ...prev,
+                            impellerType: value
+                          }))
+                        }
+                      >
+                        <SelectTrigger id='impellerType'>
+                          <SelectValue placeholder='Select impeller type...' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='null'>None</SelectItem>
+                          {IMPELLER_TYPE_OPTIONS.map((type) => (
+                            <SelectItem key={type} value={type}>
+                              {type}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Poles */}
+                    <div className='space-y-2'>
+                      <Label htmlFor='poles'>Poles</Label>
+                      <Select
+                        value={pumpForm.poles?.toString() || ''}
+                        onValueChange={(value) =>
+                          setPumpForm((prev) => ({
+                            ...prev,
+                            poles: value ? parseInt(value) : null
+                          }))
+                        }
+                      >
+                        <SelectTrigger id='poles'>
+                          <SelectValue placeholder='Select poles...' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='null'>None</SelectItem>
+                          {POLE_OPTIONS.map((pole) => (
+                            <SelectItem key={pole} value={pole}>
+                              {pole} Poles
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className='text-muted-foreground text-xs'>
+                        Number of motor poles (affects synchronous speed)
+                      </p>
+                    </div>
+
+                    {/* Other Traits - Multi-Select */}
+                    <div className='col-span-2 space-y-2'>
+                      <Label>Other Traits</Label>
+                      <MultiSelectFilter
+                        label=''
+                        options={OTHER_TRAITS_OPTIONS}
+                        selected={pumpForm.otherTraits || []}
+                        onSelectionChange={(selected) =>
+                          setPumpForm((prev) => ({
+                            ...prev,
+                            otherTraits: selected
+                          }))
+                        }
+                        placeholder='Select pump traits...'
+                      />
+                      <p className='text-muted-foreground text-xs'>
+                        Select all applicable traits (VFD compatible,
+                        self-priming, etc.)
+                      </p>
+                    </div>
+
+                    {/* Min Temperature - NEW FIELD */}
+                    <div className='space-y-2'>
+                      <Label htmlFor='minTemp'>Min Temperature (°C)</Label>
+                      <Input
+                        id='minTemp'
+                        type='number'
+                        step='1'
+                        placeholder='e.g., 0'
+                        value={pumpForm.minTemp ?? ''}
+                        onChange={(e) =>
+                          setPumpForm((prev) => ({
+                            ...prev,
+                            minTemp: e.target.value
+                              ? parseFloat(e.target.value)
+                              : null
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className='space-y-2'>
+                    <Label htmlFor='maxTemp'>Max Temperature (°C)</Label>
+                    <Input
+                      id='maxTemp'
+                      type='number'
+                      value={pumpForm.maxTemp}
+                      onChange={(e) =>
+                        handleFormChange('maxTemp', e.target.value)
+                      }
+                      placeholder='Maximum temperature'
+                    />
+                  </div>
+
+                  </>
+
                   <div className='space-y-2'>
                     <Label htmlFor='inlet'>Inlet (mm)</Label>
                     <Input
@@ -926,18 +1144,6 @@ const EditPump: React.FC = () => {
                         handleFormChange('outlet', e.target.value)
                       }
                       placeholder='Outlet diameter'
-                    />
-                  </div>
-                  <div className='space-y-2'>
-                    <Label htmlFor='maxTemp'>Max Temperature (°C)</Label>
-                    <Input
-                      id='maxTemp'
-                      type='number'
-                      value={pumpForm.maxTemp}
-                      onChange={(e) =>
-                        handleFormChange('maxTemp', e.target.value)
-                      }
-                      placeholder='Maximum temperature'
                     />
                   </div>
 

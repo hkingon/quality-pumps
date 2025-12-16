@@ -100,6 +100,13 @@ interface Pump {
   is_public: boolean;
   rpm: number;
   hz: number;
+
+  pump_class?: string;
+  application?: string;
+  impeller_type?: string;
+  other_traits?: string[];
+  min_temp?: number | null;
+  poles?: number | null;
 }
 
 interface PumpDetailViewProps {
@@ -485,6 +492,54 @@ const PumpDetailView: React.FC<PumpDetailViewProps> = ({
                       </p>
                       <Badge variant='outline'>{pump.configuration}</Badge>
                     </div>
+                    <div>
+                      <p className='text-muted-foreground text-sm font-medium'>
+                        Min Temperature
+                      </p>
+                      <p className='flex items-center gap-1 font-semibold'>
+                        <Thermometer className='h-4 w-4' />
+                        {pump.min_temp}°C
+                      </p>
+                    </div>
+                    {pump.impeller_type && (
+                      <div className='space-y-1'>
+                        <p className='text-muted-foreground text-sm font-medium'>
+                          Impeller Type
+                        </p>
+                        <Badge variant='outline' className='text-sm'>
+                          {pump.impeller_type}
+                        </Badge>
+                      </div>
+                    )}
+                    {pump.pump_class && (
+                      <div className='space-y-1'>
+                        <p className='text-muted-foreground text-sm font-medium'>
+                          Pump Class
+                        </p>
+                        <Badge variant='default' className='text-sm'>
+                          {pump.pump_class}
+                        </Badge>
+                      </div>
+                    )}
+
+                    {pump.other_traits && pump.other_traits.length > 0 && (
+                      <div className='col-span-2 space-y-2'>
+                        <p className='text-muted-foreground text-sm font-medium'>
+                          Other Traits
+                        </p>
+                        <div className='flex flex-wrap gap-2'>
+                          {pump.other_traits.map((trait: string) => (
+                            <Badge
+                              key={trait}
+                              variant='secondary'
+                              className='text-xs'
+                            >
+                              {trait}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className='space-y-3'>
                     <div>
@@ -519,6 +574,22 @@ const PumpDetailView: React.FC<PumpDetailViewProps> = ({
                         <Thermometer className='h-4 w-4' />
                         {pump.max_temp}°C
                       </p>
+                    </div>
+                    {pump.application && (
+                      <div className='space-y-1'>
+                        <p className='text-muted-foreground text-sm font-medium'>
+                          Application
+                        </p>
+                        <Badge variant='secondary' className='text-sm'>
+                          {pump.application}
+                        </Badge>
+                      </div>
+                    )}
+                    <div>
+                      <p className='text-muted-foreground text-sm font-medium'>
+                        Poles
+                      </p>
+                      <p className='font-semibold'>{pump.poles}</p>
                     </div>
                   </div>
                 </CardContent>

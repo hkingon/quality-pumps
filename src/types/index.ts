@@ -106,6 +106,13 @@ export interface SavedPump {
   manualBepFlow?: number | null;
   rpm?: number | null;
   hz?: number | null;
+
+  pumpClass?: string;
+  application?: string;
+  impellerType?: string;
+  otherTraits?: string[];
+  minTemp?: number;
+  poles?: number;
 }
 
 export interface PumpCurvePoint {

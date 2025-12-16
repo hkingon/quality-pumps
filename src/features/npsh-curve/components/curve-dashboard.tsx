@@ -1297,7 +1297,14 @@ export function PumpCurveDashboard() {
       efficiency: pump.efficiency || [],
       manualBepFlow: pump.manual_bep_flow || undefined,
       motorPower: pump.motor_power || [],
-      is_public: pump.is_public || false
+      is_public: pump.is_public || false,
+      
+      pumpClass: pump.pump_class,
+    application: pump.application,
+    impellerType: pump.impeller_type,
+    otherTraits: pump.other_traits || [],
+    poles: pump.poles,
+    minTemp: pump.min_temp,
     };
   }
 

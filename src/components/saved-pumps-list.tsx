@@ -1,35 +1,33 @@
 'use client';
+
 import { useEffect, useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import type { SavedPump, SystemCurveData } from '@/types';
-import {
-  Pencil,
-  Plus,
-  Search,
-  Trash,
-  X,
-  Filter,
-  ChevronDown
-} from 'lucide-react';
+import { Pencil, Plus, Search, X, Filter, ChevronDown } from 'lucide-react';
 import { convertFlow, convertHead, FlowUnit, HeadUnit } from '@/lib/units';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger
 } from '@/components/ui/collapsible';
-import Link from 'next/link';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import PumpDetailView from '@/features/pumps/pump-details-view';
+import { MultiSelectFilter } from '@/components/multi-select-filter';
+import { NumericRangeFilter } from '@/components/numeric-range-filter';
+import {
+  FilterState,
+  initialFilters,
+  PUMP_CLASS_OPTIONS,
+  APPLICATION_OPTIONS,
+  IMPELLER_TYPE_OPTIONS,
+  INSTALLATION_CONFIG_OPTIONS,
+  OTHER_TRAITS_OPTIONS,
+  PHASE_OPTIONS,
+  POLE_OPTIONS
+} from '@/types/filters';
 
 interface SavedPumpsListProps {
   savedPumps: SavedPump[];
@@ -42,67 +40,6 @@ interface SavedPumpsListProps {
   headUnit: HeadUnit;
   flowUnit: FlowUnit;
 }
-
-interface FilterState {
-  type: string;
-  configuration: string;
-  brand: string;
-  powerRange: string;
-  phases: string;
-  voltage: string;
-  inletSize: string;
-  current: string;
-  model: string;
-  outletSize: string;
-  temperatureRange: string;
-  flowRange: string;
-  headRange: string;
-}
-
-const initialFilters: FilterState = {
-  type: '',
-  configuration: '',
-  brand: '',
-  powerRange: '',
-  phases: '',
-  voltage: '',
-  inletSize: '',
-  model: '',
-  current: '',
-  outletSize: '',
-  temperatureRange: '',
-  flowRange: '',
-  headRange: ''
-};
-
-// Filter options based on your pump types
-// const pumpTypes = [
-//   'Centrifugal',
-//   'Positive Displacement',
-//   'Axial',
-//   'Mixed Flow',
-//   'Drainage Pump',
-//   'Horizontal Multistage',
-//   'End Suction Centrifugal',
-//   'Submersible Vortex',
-//   'Grinder',
-//   'Jet Pressure Pump',
-//   'Submersible Drainage Pump'
-// ];
-// const configurations = [
-//   'End Suction',
-//   'Split Case',
-//   'Vertical Turbine',
-//   'Inline',
-//   'Self Priming',
-//   'Single Pump'
-// ];
-const phaseOptions = ['1', '3'];
-// const voltageRanges = ['110-240V', '380-480V', '500V+'];
-const powerRanges = ['0-1 kW', '1-5 kW', '5-15 kW', '15-50 kW', '50+ kW'];
-const sizeRanges = ['15-25mm', '25-50mm', '50-100mm', '100-200mm', '200mm+'];
-const temperatureRanges = ['0-40°C', '40-80°C', '80-120°C', '120°C+'];
-const currentRanges = ['0-10A', '10-25A', '25-50A', '50-100A', '100A+'];
 
 export function SavedPumpsList({
   savedPumps,
@@ -119,32 +56,27 @@ export function SavedPumpsList({
   const [pumpsOnChart, setPumpsOnChart] = useState<string[]>([]);
   const [filters, setFilters] = useState<FilterState>(initialFilters);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
-
   const [selectedPumpId, setSelectedPumpId] = useState<string | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
 
   const allPumps = useMemo(() => {
-  // For admins: only show saved pumps (owned), don't mix with public pumps
-  // This prevents showing the same pump twice (once as owned, once as public)
-  const ownedPumps = savedPumps.map((pump) => ({
-    ...pump,
-    isPublic: false,
-    isOwned: true
-  }));
-
-  // For non-admins: show their saved pumps + public pumps from others
-  // Filter out public pumps that are already in their saved pumps
-  const savedPumpIds = new Set(savedPumps.map(p => p.id));
-  const uniquePublicPumps = publicPumps
-    .filter(pump => !savedPumpIds.has(pump.id))
-    .map((pump) => ({
+    const ownedPumps = savedPumps.map((pump) => ({
       ...pump,
-      isPublic: true,
-      isOwned: false
+      isPublic: false,
+      isOwned: true
     }));
 
-  return [...ownedPumps, ...uniquePublicPumps];
-}, [savedPumps, publicPumps]);
+    const savedPumpIds = new Set(savedPumps.map((p) => p.id));
+    const uniquePublicPumps = publicPumps
+      .filter((pump) => !savedPumpIds.has(pump.id))
+      .map((pump) => ({
+        ...pump,
+        isPublic: true,
+        isOwned: false
+      }));
+
+    return [...ownedPumps, ...uniquePublicPumps];
+  }, [savedPumps, publicPumps]);
 
   useEffect(() => {
     const storedPumpsOnChart = sessionStorage.getItem('pumpsOnChart');
@@ -160,38 +92,16 @@ export function SavedPumpsList({
     }
   }, []);
 
-  // Get operating conditions from the first system curve
   const operatingFlow = systemCurveData[0]?.operatingFlow || 0;
   const operatingHead = systemCurveData[0]?.operatingHead || 0;
 
-  // Get unique values for filter dropdowns
-  const uniqueBrands = [
-    ...new Set(savedPumps.map((p) => p.brand).filter((b): b is string => !!b))
-  ];
-  const uniqueModels = [
-    ...new Set(savedPumps.map((p) => p.model).filter((m): m is string => !!m))
-  ];
-
-  const uniqueTypes = [
-    ...new Set(savedPumps.map((p) => p.type).filter((t): t is string => !!t))
-  ];
-  const uniqueConfigurations = [
-    ...new Set(
-      savedPumps.map((p) => p.configuration).filter((c): c is string => !!c)
-    )
-  ];
-
-  const uniqueVoltages = [
-    ...new Set(
-      savedPumps.map((p) => p.voltage).filter((v): v is number => v != null)
-    )
-  ];
-  const voltageOptions = [
-    ...uniqueVoltages.map((v) => `${v}V`),
-    '110-240V',
-    '380-480V',
-    '500V+'
-  ].filter((v, i, arr) => arr.indexOf(v) === i);
+  // Get unique brands for filter
+  const uniqueBrands = useMemo(
+    () => [
+      ...new Set(savedPumps.map((p) => p.brand).filter((b): b is string => !!b))
+    ],
+    [savedPumps]
+  );
 
   const togglePumpOnChart = (pump: SavedPump) => {
     const isAdded = pumpsOnChart.includes(pump.id);
@@ -213,97 +123,70 @@ export function SavedPumpsList({
   };
 
   const getActiveFilterCount = () => {
-    return Object.values(filters).filter((value) => value !== '').length;
+    let count = 0;
+
+    // Count multi-select filters
+    if (filters.pumpClass.length > 0) count++;
+    if (filters.application.length > 0) count++;
+    if (filters.impellerType.length > 0) count++;
+    if (filters.installationConfiguration.length > 0) count++;
+    if (filters.otherTraits.length > 0) count++;
+    if (filters.phases.length > 0) count++;
+    if (filters.poles.length > 0) count++;
+    if (filters.brand.length > 0) count++;
+
+    // Count numeric range filters
+    if (filters.powerRange.min !== null || filters.powerRange.max !== null)
+      count++;
+    if (filters.currentRange.min !== null || filters.currentRange.max !== null)
+      count++;
+    if (filters.voltageRange.min !== null || filters.voltageRange.max !== null)
+      count++;
+    if (
+      filters.inletSizeRange.min !== null ||
+      filters.inletSizeRange.max !== null
+    )
+      count++;
+    if (
+      filters.outletSizeRange.min !== null ||
+      filters.outletSizeRange.max !== null
+    )
+      count++;
+    if (
+      filters.temperatureRange.min !== null ||
+      filters.temperatureRange.max !== null
+    )
+      count++;
+
+    return count;
   };
 
-  // Helper functions for range filtering
-  const isInPowerRange = (power: number, range: string) => {
-    switch (range) {
-      case '0-1 kW':
-        return power >= 0 && power <= 1;
-      case '1-5 kW':
-        return power > 1 && power <= 5;
-      case '5-15 kW':
-        return power > 5 && power <= 15;
-      case '15-50 kW':
-        return power > 15 && power <= 50;
-      case '50+ kW':
-        return power > 50;
-      default:
-        return true;
-    }
+  // Helper function to check if pump matches multi-select filter
+  const matchesMultiSelect = (
+    pumpValue: string | undefined,
+    selectedValues: string[]
+  ): boolean => {
+    if (selectedValues.length === 0) return true;
+    if (!pumpValue) return false;
+    return selectedValues.includes(pumpValue);
   };
 
-  const isInSizeRange = (size: number, range: string) => {
-    switch (range) {
-      case '15-25mm':
-        return size >= 15 && size <= 25;
-      case '25-50mm':
-        return size > 25 && size <= 50;
-      case '50-100mm':
-        return size > 50 && size <= 100;
-      case '100-200mm':
-        return size > 100 && size <= 200;
-      case '200mm+':
-        return size > 200;
-      default:
-        return true;
-    }
-  };
-
-  const isInTemperatureRange = (temp: number, range: string) => {
-    switch (range) {
-      case '0-40°C':
-        return temp >= 0 && temp <= 40;
-      case '40-80°C':
-        return temp > 40 && temp <= 80;
-      case '80-120°C':
-        return temp > 80 && temp <= 120;
-      case '120°C+':
-        return temp > 120;
-      default:
-        return true;
-    }
-  };
-
-  const isInVoltageRange = (voltage: number, range: string) => {
-    if (range.endsWith('V') && !range.includes('-') && !range.includes('+')) {
-      const targetVoltage = parseInt(range.replace('V', ''));
-      return voltage === targetVoltage;
-    }
-
-    switch (range) {
-      case '110-240V':
-        return voltage >= 110 && voltage <= 240;
-      case '380-480V':
-        return voltage >= 380 && voltage <= 480;
-      case '500V+':
-        return voltage > 500;
-      default:
-        return true;
-    }
-  };
-
-  const isInCurrentRange = (current: number, range: string) => {
-    switch (range) {
-      case '0-10A':
-        return current >= 0 && current <= 10;
-      case '10-25A':
-        return current > 10 && current <= 25;
-      case '25-50A':
-        return current > 25 && current <= 50;
-      case '50-100A':
-        return current > 50 && current <= 100;
-      case '100A+':
-        return current > 100;
-      default:
-        return true;
-    }
+  // Helper function to check numeric range
+  const isInRange = (
+    value: number | undefined,
+    range: { min: number | null; max: number | null }
+  ): boolean => {
+    if (range.min === null && range.max === null) return true;
+    if (value === undefined || value === null) return false;
+    if (range.min !== null && value < range.min) return false;
+    if (range.max !== null && value > range.max) return false;
+    return true;
   };
 
   const filteredPumps = useMemo(() => {
     return allPumps
       .filter((pump) => {
+        // Search query
         if (
           searchQuery &&
           !pump.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -311,48 +194,60 @@ export function SavedPumpsList({
           return false;
         }
 
-        if (filters.type && pump.type !== filters.type) return false;
-        if (
-          filters.configuration &&
-          pump.configuration !== filters.configuration
-        )
+        // Multi-select filters
+        if (!matchesMultiSelect(pump.pumpClass, filters.pumpClass))
           return false;
-        if (filters.brand && pump.brand !== filters.brand) return false;
-        if (filters.model && pump.model !== filters.model) return false;
-        if (filters.phases && pump.phases?.toString() !== filters.phases)
+        if (!matchesMultiSelect(pump.application, filters.application))
+          return false;
+        if (!matchesMultiSelect(pump.impellerType, filters.impellerType))
+          return false;
+        if (
+          !matchesMultiSelect(
+            pump.configuration,
+            filters.installationConfiguration
+          )
+        )
           return false;
 
-        // Range filters
-        if (
-          filters.powerRange &&
-          !isInPowerRange(pump.kw || 0, filters.powerRange)
-        )
+        // Other traits - check if pump has any of the selected traits
+        if (filters.otherTraits.length > 0) {
+          const pumpTraits = pump.otherTraits || [];
+          const hasMatchingTrait = filters.otherTraits.some((trait) =>
+            pumpTraits.includes(trait)
+          );
+          if (!hasMatchingTrait) return false;
+        }
+
+        // Phases - handle "1 Phase", "3 Phase", "DC" format
+        if (filters.phases.length > 0) {
+          const pumpPhaseStr = pump.phases?.toString();
+          const matchesPhase = filters.phases.some((phase) => {
+            if (phase === '1 Phase') return pumpPhaseStr === '1';
+            if (phase === '3 Phase') return pumpPhaseStr === '3';
+            if (phase === 'DC')
+              return (
+                pump.type?.toLowerCase().includes('dc') ||
+                pump.type?.toLowerCase().includes('solar')
+              );
+            return false;
+          });
+          if (!matchesPhase) return false;
+        }
+
+        // Poles
+        if (!matchesMultiSelect(pump.poles?.toString(), filters.poles))
           return false;
-        if (
-          filters.voltage &&
-          !isInVoltageRange(pump.voltage || 0, filters.voltage)
-        )
-          return false;
-        if (
-          filters.current &&
-          !isInCurrentRange(pump.amps || 0, filters.current)
-        )
-          return false;
-        if (
-          filters.inletSize &&
-          !isInSizeRange(pump.inlet || 0, filters.inletSize)
-        )
-          return false;
-        if (
-          filters.outletSize &&
-          !isInSizeRange(pump.outlet || 0, filters.outletSize)
-        )
-          return false;
-        if (
-          filters.temperatureRange &&
-          !isInTemperatureRange(pump.maxTemp || 0, filters.temperatureRange)
-        )
-          return false;
+
+        // Brand
+        if (!matchesMultiSelect(pump.brand, filters.brand)) return false;
+
+        // Numeric range filters
+        if (!isInRange(pump.kw, filters.powerRange)) return false;
+        if (!isInRange(pump.amps, filters.currentRange)) return false;
+        if (!isInRange(pump.voltage, filters.voltageRange)) return false;
+        if (!isInRange(pump.inlet, filters.inletSizeRange)) return false;
+        if (!isInRange(pump.outlet, filters.outletSizeRange)) return false;
+        if (!isInRange(pump.maxTemp, filters.temperatureRange)) return false;
 
         return true;
       })
@@ -360,7 +255,6 @@ export function SavedPumpsList({
         const pumpMaxFlow = convertFlow(pump.maxFlow, pump.flowUnit, flowUnit);
         const pumpMaxHead = convertHead(pump.maxHead, pump.headUnit, headUnit);
 
-        // Convert operating duty to pump's original units for proper comparison
         const operatingFlowInPumpUnits = convertFlow(
           operatingFlow,
           flowUnit,
@@ -372,7 +266,6 @@ export function SavedPumpsList({
           pump.headUnit
         );
 
-        // Check if pump can meet duty (operating point should be below pump curve)
         let canMeetDuty = false;
 
         if (
@@ -380,15 +273,9 @@ export function SavedPumpsList({
           operatingHeadInPumpUnits > 0 &&
           operatingFlowInPumpUnits <= pump.maxFlow
         ) {
-          // Check if pump has actual PvsQ data points
           if (pump.pvsq && pump.pvsq.length > 0) {
-            // Use actual pump curve data
             const sortedPoints = [...pump.pvsq].sort((a, b) => a.flow - b.flow);
-
-            // Find interpolated head at operating flow
             let pumpHeadAtOperatingFlow = 0;
-
-            // Find the two points that bracket the operating flow
             let lowerPoint = sortedPoints[0];
             let upperPoint = sortedPoints[sortedPoints.length - 1];
 
@@ -403,7 +290,6 @@ export function SavedPumpsList({
               }
             }
 
-            // Interpolate or extrapolate the head value
             if (lowerPoint.flow === upperPoint.flow) {
               pumpHeadAtOperatingFlow = lowerPoint.head;
             } else {
@@ -414,35 +300,26 @@ export function SavedPumpsList({
                 lowerPoint.head + ratio * (upperPoint.head - lowerPoint.head);
             }
 
-            // Check if operating head is below pump curve (with small tolerance for measurement errors)
-            const tolerance = 0.1; // 10cm tolerance
+            const tolerance = 0.1;
             canMeetDuty =
               operatingHeadInPumpUnits <= pumpHeadAtOperatingFlow + tolerance;
           } else {
-            // Use standard pump curve equation: H = Hmax * (1 - (Q/Qmax)^2)
             const pumpHeadAtOperatingFlow =
               pump.maxHead *
               (1 - Math.pow(operatingFlowInPumpUnits / pump.maxFlow, 2));
-
-            // Check if operating head is below pump curve (with small tolerance)
-            const tolerance = 0.1; // 10cm tolerance
+            const tolerance = 0.1;
             canMeetDuty =
               operatingHeadInPumpUnits <= pumpHeadAtOperatingFlow + tolerance;
           }
         } else {
-          // If operating flow exceeds pump max flow, pump cannot meet duty
           canMeetDuty = false;
         }
 
-        // Calculate BEP using actual pump curve data when available
         let bepFlow = 0;
         let bepHead = 0;
 
         if (pump.pvsq && pump.pvsq.length > 0) {
-          // Use actual pump curve data to find BEP (maximum efficiency point)
-          // For pumps with actual data, BEP is typically around the point with maximum power (flow * head)
           let maxProduct = 0;
-
           pump.pvsq.forEach((point) => {
             const product = point.flow * point.head;
             if (product > maxProduct) {
@@ -452,15 +329,12 @@ export function SavedPumpsList({
             }
           });
         } else {
-          // Use standard calculation for theoretical BEP
           const numPoints = 100;
           let maxProduct = 0;
-
           for (let i = 0; i <= numPoints; i++) {
             const flow = (pump.maxFlow * i) / numPoints;
             const head = pump.maxHead * (1 - Math.pow(flow / pump.maxFlow, 2));
             const product = flow * head;
-
             if (product > maxProduct) {
               maxProduct = product;
               bepFlow = flow;
@@ -469,11 +343,9 @@ export function SavedPumpsList({
           }
         }
 
-        // Convert BEP values to display units for consistency
         const bepFlowConverted = convertFlow(bepFlow, pump.flowUnit, flowUnit);
         const bepHeadConverted = convertHead(bepHead, pump.headUnit, headUnit);
 
-        // Calculate score using converted values for display consistency
         let score = Infinity;
         if (
           canMeetDuty &&
@@ -512,16 +384,11 @@ export function SavedPumpsList({
         };
       })
       .sort((a, b) => {
-        // First priority: Pumps that can meet duty vs those that cannot
         if (a.canMeetDuty && !b.canMeetDuty) return -1;
         if (!a.canMeetDuty && b.canMeetDuty) return 1;
-
-        // Second priority: Among pumps that can meet duty, sort by score (lower is better)
         if (a.canMeetDuty && b.canMeetDuty) {
           return a.score - b.score;
         }
-
-        // For pumps that cannot meet duty, sort by BEP distance as fallback
         return a.bepDistance - b.bepDistance;
       });
   }, [
@@ -570,265 +437,163 @@ export function SavedPumpsList({
           </Button>
         </CollapsibleTrigger>
         <CollapsibleContent className='mt-4 space-y-4'>
-          <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-2'>
-            {/* Type Filter */}
-            <div className='space-y-2'>
-              <label className='text-sm font-medium'>Type</label>
-              <Select
-                value={filters.type}
-                onValueChange={(value) =>
-                  setFilters((prev) => ({ ...prev, type: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder='All Types' />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='all'>All Types</SelectItem>
-                  {uniqueTypes.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+            {/* Pump Class - Hierarchical */}
+            <MultiSelectFilter
+              label='Pump Class'
+              options={PUMP_CLASS_OPTIONS}
+              selected={filters.pumpClass}
+              onSelectionChange={(selected) =>
+                setFilters((prev) => ({ ...prev, pumpClass: selected }))
+              }
+              placeholder='Select pump class...'
+            />
 
-            {/* Configuration Filter */}
-            <div className='space-y-2'>
-              <label className='text-sm font-medium'>Configuration</label>
-              <Select
-                value={filters.configuration}
-                onValueChange={(value) =>
-                  setFilters((prev) => ({ ...prev, configuration: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder='All Configurations' />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='all'>All Configurations</SelectItem>
-                  {uniqueConfigurations.map((config) => (
-                    <SelectItem key={config} value={config}>
-                      {config}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Application */}
+            <MultiSelectFilter
+              label='Application'
+              options={APPLICATION_OPTIONS}
+              selected={filters.application}
+              onSelectionChange={(selected) =>
+                setFilters((prev) => ({ ...prev, application: selected }))
+              }
+              placeholder='Select application...'
+            />
 
-            {/* Brand Filter */}
-            <div className='space-y-2'>
-              <label className='text-sm font-medium'>Brand</label>
-              <Select
-                value={filters.brand}
-                onValueChange={(value) =>
-                  setFilters((prev) => ({ ...prev, brand: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder='All Brands' />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='all'>All Brands</SelectItem>
-                  {uniqueBrands.map((brand) => (
-                    <SelectItem key={brand} value={brand}>
-                      {brand}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Impeller Type */}
+            <MultiSelectFilter
+              label='Impeller Type'
+              options={IMPELLER_TYPE_OPTIONS}
+              selected={filters.impellerType}
+              onSelectionChange={(selected) =>
+                setFilters((prev) => ({ ...prev, impellerType: selected }))
+              }
+              placeholder='Select impeller type...'
+            />
 
-            {/* Power Range Filter */}
-            <div className='space-y-2'>
-              <label className='text-sm font-medium'>Power Range</label>
-              <Select
-                value={filters.powerRange}
-                onValueChange={(value) =>
-                  setFilters((prev) => ({ ...prev, powerRange: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder='All Power Ranges' />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='all'>All Power Ranges</SelectItem>
-                  {powerRanges.map((range) => (
-                    <SelectItem key={range} value={range}>
-                      {range}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Installation Configuration */}
+            <MultiSelectFilter
+              label='Installation Configuration'
+              options={INSTALLATION_CONFIG_OPTIONS}
+              selected={filters.installationConfiguration}
+              onSelectionChange={(selected) =>
+                setFilters((prev) => ({
+                  ...prev,
+                  installationConfiguration: selected
+                }))
+              }
+              placeholder='Select configuration...'
+            />
 
-            {/* Model filters */}
-            <div className='space-y-2'>
-              <label className='text-sm font-medium'>Model</label>
-              <Select
-                value={filters.model}
-                onValueChange={(value) =>
-                  setFilters((prev) => ({ ...prev, model: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder='All Models' />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='all'>All Models</SelectItem>
-                  {uniqueModels.map((model) => (
-                    <SelectItem key={model} value={model}>
-                      {model}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Other Traits */}
+            <MultiSelectFilter
+              label='Other Traits'
+              options={OTHER_TRAITS_OPTIONS}
+              selected={filters.otherTraits}
+              onSelectionChange={(selected) =>
+                setFilters((prev) => ({ ...prev, otherTraits: selected }))
+              }
+              placeholder='Select traits...'
+            />
 
-            {/* Current Range Filter */}
-            <div className='space-y-2'>
-              <label className='text-sm font-medium'>Current Range</label>
-              <Select
-                value={filters.current}
-                onValueChange={(value) =>
-                  setFilters((prev) => ({ ...prev, current: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder='All Current Ranges' />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='all'>All Current Ranges</SelectItem>
-                  {currentRanges.map((range) => (
-                    <SelectItem key={range} value={range}>
-                      {range}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Phases */}
+            <MultiSelectFilter
+              label='Phases'
+              options={PHASE_OPTIONS}
+              selected={filters.phases}
+              onSelectionChange={(selected) =>
+                setFilters((prev) => ({ ...prev, phases: selected }))
+              }
+              placeholder='Select phases...'
+            />
 
-            {/* Phases Filter */}
-            <div className='space-y-2'>
-              <label className='text-sm font-medium'>Phases</label>
-              <Select
-                value={filters.phases}
-                onValueChange={(value) =>
-                  setFilters((prev) => ({ ...prev, phases: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder='All Phases' />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='all'>All Phases</SelectItem>
-                  {phaseOptions.map((phase) => (
-                    <SelectItem key={phase} value={phase}>
-                      {phase} Phase
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Poles */}
+            <MultiSelectFilter
+              label='Poles'
+              options={POLE_OPTIONS}
+              selected={filters.poles}
+              onSelectionChange={(selected) =>
+                setFilters((prev) => ({ ...prev, poles: selected }))
+              }
+              placeholder='Select poles...'
+            />
 
-            {/* Voltage Range Filter */}
-            <div className='space-y-2'>
-              <label className='text-sm font-medium'>Voltage Range</label>
-              <Select
-                value={filters.voltage}
-                onValueChange={(value) =>
-                  setFilters((prev) => ({ ...prev, voltage: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder='All Voltages' />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='all'>All Voltages</SelectItem>
-                  {voltageOptions
-                    .sort((a, b) => {
-                      const aNum = parseInt(a.replace(/[^0-9]/g, ''));
-                      const bNum = parseInt(b.replace(/[^0-9]/g, ''));
-                      return aNum - bNum;
-                    })
-                    .map((voltage) => (
-                      <SelectItem key={voltage} value={voltage}>
-                        {voltage}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Brand */}
+            <MultiSelectFilter
+              label='Brand'
+              options={uniqueBrands}
+              selected={filters.brand}
+              onSelectionChange={(selected) =>
+                setFilters((prev) => ({ ...prev, brand: selected }))
+              }
+              placeholder='Select brands...'
+            />
 
-            {/* Inlet Size Filter */}
-            <div className='space-y-2'>
-              <label className='text-sm font-medium'>Inlet Size</label>
-              <Select
-                value={filters.inletSize}
-                onValueChange={(value) =>
-                  setFilters((prev) => ({ ...prev, inletSize: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder='All Inlet Sizes' />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='all'>All Inlet Sizes</SelectItem>
-                  {sizeRanges.map((range) => (
-                    <SelectItem key={range} value={range}>
-                      {range}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Power Range */}
+            <NumericRangeFilter
+              label='Power Range'
+              range={filters.powerRange}
+              onRangeChange={(range) =>
+                setFilters((prev) => ({ ...prev, powerRange: range }))
+              }
+              unit='kW'
+              placeholder={{ min: 'Min kW', max: 'Max kW' }}
+            />
 
-            {/* Outlet Size Filter */}
-            <div className='space-y-2'>
-              <label className='text-sm font-medium'>Outlet Size</label>
-              <Select
-                value={filters.outletSize}
-                onValueChange={(value) =>
-                  setFilters((prev) => ({ ...prev, outletSize: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder='All Outlet Sizes' />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='all'>All Outlet Sizes</SelectItem>
-                  {sizeRanges.map((range) => (
-                    <SelectItem key={range} value={range}>
-                      {range}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Current Range */}
+            <NumericRangeFilter
+              label='Current Range'
+              range={filters.currentRange}
+              onRangeChange={(range) =>
+                setFilters((prev) => ({ ...prev, currentRange: range }))
+              }
+              unit='A'
+              placeholder={{ min: 'Min A', max: 'Max A' }}
+            />
 
-            {/* Temperature Range Filter */}
-            <div className='space-y-2'>
-              <label className='text-sm font-medium'>Temperature Range</label>
-              <Select
-                value={filters.temperatureRange}
-                onValueChange={(value) =>
-                  setFilters((prev) => ({ ...prev, temperatureRange: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder='All Temperatures' />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='all'>All Temperatures</SelectItem>
-                  {temperatureRanges.map((range) => (
-                    <SelectItem key={range} value={range}>
-                      {range}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Voltage Range */}
+            <NumericRangeFilter
+              label='Voltage Range'
+              range={filters.voltageRange}
+              onRangeChange={(range) =>
+                setFilters((prev) => ({ ...prev, voltageRange: range }))
+              }
+              unit='V'
+              placeholder={{ min: 'Min V', max: 'Max V' }}
+            />
+
+            {/* Inlet Size Range */}
+            <NumericRangeFilter
+              label='Inlet Size'
+              range={filters.inletSizeRange}
+              onRangeChange={(range) =>
+                setFilters((prev) => ({ ...prev, inletSizeRange: range }))
+              }
+              unit='mm'
+              placeholder={{ min: 'Min', max: 'Max' }}
+            />
+
+            {/* Outlet Size Range */}
+            <NumericRangeFilter
+              label='Outlet Size'
+              range={filters.outletSizeRange}
+              onRangeChange={(range) =>
+                setFilters((prev) => ({ ...prev, outletSizeRange: range }))
+              }
+              unit='mm'
+              placeholder={{ min: 'Min', max: 'Max' }}
+            />
+
+            {/* Temperature Range */}
+            <NumericRangeFilter
+              label='Pumped Liquid Temperature'
+              range={filters.temperatureRange}
+              onRangeChange={(range) =>
+                setFilters((prev) => ({ ...prev, temperatureRange: range }))
+              }
+              unit='°C'
+              placeholder={{ min: 'Min', max: 'Max' }}
+            />
           </div>
 
           {/* Clear Filters Button */}
@@ -878,44 +643,42 @@ export function SavedPumpsList({
                   pump.canMeetDuty && pump.score <= 1.2
                     ? 'border-green-300 bg-green-100 dark:border-green-800 dark:bg-green-950'
                     : pump.canMeetDuty && pump.score > 1.2
-                    ? 'border-yellow-300 bg-yellow-100 dark:border-yellow-800 dark:bg-yellow-950'
-                    : 'border-red-300 bg-red-100 dark:border-red-800 dark:bg-red-950'
+                      ? 'border-yellow-300 bg-yellow-100 dark:border-yellow-800 dark:bg-yellow-950'
+                      : 'border-red-300 bg-red-100 dark:border-red-800 dark:bg-red-950'
                 }`}
               >
                 <div className='mr-2 truncate'>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      {/* <Link href={`/dashboard/pumps/${pump.id}`}> */}
-                        <button
-                          className='flex cursor-pointer items-center gap-2 border-none bg-transparent p-0 hover:underline'
-                          style={{
-                            all: 'unset',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem'
-                          }}
-                          onClick={() => handleViewPump(pump.id)}
-                          aria-label='View pump curves'
-                        >
-                          <span className='font-medium'>{pump.name}</span>
-                          {pump.isPublic && (
-                            <span className='rounded bg-blue-600 px-1 py-0.5 text-xs text-white dark:bg-blue-700'>
-                              PUBLIC
-                            </span>
-                          )}
-                          {index === 0 && pump.canMeetDuty && (
-                            <span className='rounded bg-green-600 px-1 py-0.5 text-xs text-white dark:bg-green-700'>
-                              BEST
-                            </span>
-                          )}
-                          {!pump.canMeetDuty && (
-                            <span className='rounded bg-red-600 px-1 py-0.5 text-xs text-white dark:bg-red-700'>
-                              UNABLE
-                            </span>
-                          )}
-                        </button>
-                      {/* </Link> */}
+                      <button
+                        className='flex cursor-pointer items-center gap-2 border-none bg-transparent p-0 hover:underline'
+                        style={{
+                          all: 'unset',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem'
+                        }}
+                        onClick={() => handleViewPump(pump.id)}
+                        aria-label='View pump curves'
+                      >
+                        <span className='font-medium'>{pump.name}</span>
+                        {pump.isPublic && (
+                          <span className='rounded bg-blue-600 px-1 py-0.5 text-xs text-white dark:bg-blue-700'>
+                            PUBLIC
+                          </span>
+                        )}
+                        {index === 0 && pump.canMeetDuty && (
+                          <span className='rounded bg-green-600 px-1 py-0.5 text-xs text-white dark:bg-green-700'>
+                            BEST
+                          </span>
+                        )}
+                        {!pump.canMeetDuty && (
+                          <span className='rounded bg-red-600 px-1 py-0.5 text-xs text-white dark:bg-red-700'>
+                            UNABLE
+                          </span>
+                        )}
+                      </button>
                     </TooltipTrigger>
                     <TooltipContent side='right' align='center'>
                       View pump curves
@@ -983,7 +746,6 @@ export function SavedPumpsList({
           )}
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }
