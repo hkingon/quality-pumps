@@ -233,17 +233,8 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
       }
     });
 
-    // Also include system curve points and BEP points
-    dischargeSystemCurvePoints.forEach((points) => {
-      if (points.length > 0) {
-        const curveMaxFlow = Math.max(...points.map((p) => p.flow));
-        const curveMaxHead = Math.max(...points.map((p) => p.head));
-        maxFlow = Math.max(maxFlow, curveMaxFlow);
-        maxHead = Math.max(maxHead, curveMaxHead);
-      }
-    });
-
     // Include BEP points (both individual and combined)
+    // Note: Discharge system curves are NOT included in scaling - chart scales based on pump curves only
     const allBepPoints = [
       ...bepPoints,
       ...modifiedBepPoints,
