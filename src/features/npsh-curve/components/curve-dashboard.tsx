@@ -383,6 +383,39 @@ export function PumpCurveDashboard() {
     }
   }, [savedPumps, publicPumps]);
 
+  // Sync motor speed controls with active pumps (Restoration/Initialization)
+  useEffect(() => {
+    if (activeSavedPumps.length === 0) return;
+
+    setMotorSpeedControls((prev) => {
+      const newControls = { ...prev };
+      let hasChanges = false;
+
+      activeSavedPumps.forEach((pump) => {
+        if (!newControls[pump.id]) {
+          const baseRpm = pump.baseRpm || 2900;
+          const baseHz = pump.baseHz || 50;
+
+          // If the pump was restored from session, it might have currentRpm set
+          // We can infer 'enabled' if currentRpm differs from baseRpm, OR if newSpeed is stored.
+          // handleSpeedEnabledChange sets newSpeed to undefined when disabled.
+          const isEnabled = !!(pump.newSpeed);
+
+          newControls[pump.id] = {
+            baseRpm,
+            baseHz,
+            currentRpm: pump.currentRpm || baseRpm,
+            currentHz: pump.currentHz || baseHz,
+            enabled: isEnabled
+          };
+          hasChanges = true;
+        }
+      });
+
+      return hasChanges ? newControls : prev;
+    });
+  }, [activeSavedPumps]);
+
   // Load curves from localStorage on mount
   useEffect(() => {
     // Handle URL parameters first
@@ -838,68 +871,277 @@ export function PumpCurveDashboard() {
       newNpshBepPoints.push({ flow: npshBepFlow, head: npshBepHead });
     });
 
-    // --- Discharge system curves (unchanged) ---
+    // --- Discharge system curves ---
     if (showDischargeSystemCurve) {
       dischargeSystemCurveData.forEach((system) => {
+        // Fallback to legacy single-component logic if components array is empty
+        const useComponents = system.components && system.components.length > 0;
+
         if (
-          system.staticHead === undefined ||
-          system.operatingFlow === undefined ||
-          system.operatingHead === undefined ||
-          system.operatingFlow <= 0
+          !useComponents && (
+            system.staticHead === undefined ||
+            system.operatingFlow === undefined ||
+            system.operatingHead === undefined ||
+            system.operatingFlow <= 0
+          )
         )
           return;
 
         const points = [];
-        const axisMaxFlow = Math.ceil(maxFlowDischarge / 10) * 10; // Use discharge-specific max
+        const axisMaxFlow = Math.ceil(maxFlowDischarge / 10) * 10;
         const numPoints = 100;
+
         for (let i = 0; i <= numPoints; i++) {
           const flow = (axisMaxFlow * i) / numPoints;
-          const head =
-            system.staticHead +
-            (system.operatingHead - system.staticHead) *
-            Math.pow(flow / system.operatingFlow, 2);
+          let head = 0;
+
+          if (useComponents) {
+            // Sum of heads from all components:
+            // Head_total(Q) = Sum( Static_i + Friction_i(Q) )
+            // Friction_i(Q) = (OperatingHead_i - StaticHead_i) * (Q / OperatingFlow_i)^2
+            // Note: operatingHead in component is Total Head at Operating Flow.
+
+            let totalHeadAtFlow = 0;
+            system.components?.forEach(comp => {
+              // If component flow is 0, avoid division by zero (shouldn't happen if validated)
+              if (!comp.operatingFlow || comp.operatingFlow <= 0) {
+                totalHeadAtFlow += comp.staticHead; // Just static
+                return;
+              }
+
+              // Friction k = (H_op - H_static) / Q_op^2
+              // H_friction(Q) = k * Q^2
+              // Component Head(Q) = H_static + k * Q^2
+
+              // Important: Units. 
+              // Component has its own flowUnit and headUnit (optional).
+              // We should normalize them.
+              // However, the inputs saved `operatingFlow` and `operatingHead` in the component as NUMBERS.
+              // `FrictionLossModal` saved them.
+              // If we assume they are consistent with the system (usually are), we can use raw values?
+              // `SystemCurveInputs` displays them as `comp.flowUnit` etc.
+              // But `FrictionLossModal` converts calc results to `headUnit`? 
+              // Wait, `FrictionLossModal` saved:
+              // `operatingHead`: calculatedHead (Total Head).
+              // `staticHead`: input.
+              // `flowUnit`: selected unit.
+              // `operatingFlow`: input value in that unit.
+
+              // We MUST normalize flows to the CHART'S current flowUnit.
+              // And Heads to the CHART'S current headUnit.
+
+              const compFlow = convertFlow(comp.operatingFlow, comp.flowUnit || 'L/min', flowUnit); // Q_op in current chart unit
+              const compStatic = convertHead(comp.staticHead, 'm', headUnit); // Static in current chart unit (Assuming saved as 'm' is effectively standard or we trust label?)
+              // Wait, `SystemCurveInputs` allowed user to input `Static Head`.
+              // The Modal had `Head Unit` selector.
+              // `convertHead(totalHeadLoss, 'm/Head', headUnit)` was used for display.
+              // The `onSave` used `staticHead` (raw input) and `calculatedHead` (raw output?).
+              // I need to be careful.
+              // In my `FrictionLossModal` implementation:
+              // `totalHeadLoss` was calculated in METERS (standard Hazen Williams).
+              // `staticHead` was raw input.
+              // `totalHead` = `totalHeadLoss + staticHead`.
+              // `converted` = `convertHead(totalHead, 'm/Head', headUnit)`.
+              // So if user selected 'kPa', they saw kPa.
+              // But `onSave` saved `staticHead` (raw).
+              // If user entered '10' thinking it is kPa?
+              // The modal treated `staticHead` as additive to Meters? No, `totalHeadLoss` is Meters.
+              // If user entered 10 (kPa) and TotalLoss=5 (m).
+              // Total = 15. Converted to kPa = 150? No.
+              // The Modal logic I wrote:
+              // `totalHead = totalHeadLoss + staticHead`.
+              // This implies staticHead MUST be in Meters for the math to hold before conversion.
+              // So I will assume `staticHead` and `operatingHead` in Component are in METERS (or at least consistent).
+
+              // Let's assume all stored data is effectively "Meters" or "Standard" for calculation, 
+              // OR we have to trust the units stored.
+              // `FrictionLossModal` implementation I just wrote:
+              // `onSave` saved raw `staticHead`.
+              // And `operatingHead` = `staticHead + totalHeadLoss`.
+              // `totalHeadLoss` is definitely Meters.
+              // So `staticHead` MUST be interpreted as Meters for that addition to make sense.
+              // So Component Data is in METERS.
+              // Component Flow is in `comp.flowUnit`.
+
+              // So conversion:
+              // Q_op_converted = convertFlow(comp.operatingFlow, comp.flowUnit, flowUnit);
+              // H_static_converted = convertHead(comp.staticHead, 'm', headUnit); // Source is 'm'
+              // H_op_converted = convertHead(comp.operatingHead, 'm', headUnit);  // Source is 'm'
+
+              const qOp = convertFlow(comp.operatingFlow, comp.flowUnit || 'L/min', flowUnit);
+              const hStatic = convertHead(comp.staticHead, 'm', headUnit);
+              const hOp = convertHead(comp.operatingHead, 'm', headUnit);
+
+              if (qOp <= 0) {
+                totalHeadAtFlow += hStatic;
+                return;
+              }
+
+              // Friction part
+              const frictionHeadAtOp = hOp - hStatic;
+              const frictionAtQ = frictionHeadAtOp * Math.pow(flow / qOp, 2);
+
+              totalHeadAtFlow += (hStatic + frictionAtQ);
+            });
+            head = totalHeadAtFlow;
+          } else {
+            // Legal Logic
+            const opHead = system.operatingHead; // Assumed to match current units?
+            // Legacy `dischargeSystemCurveData` usually just holds numbers entered in the INPUT boxes.
+            // The input boxes didn't have unit contexts stored explicitly on them before?
+            // `curve-dashboard` top level selected `flowUnit` / `headUnit`.
+            // The legacy inputs just took numbers.
+            // `generateCurves` assumes those numbers ARE in the currently selected units.
+            // So no conversion needed for legacy path.
+
+            head = system.staticHead +
+              (system.operatingHead - system.staticHead) *
+              Math.pow(flow / system.operatingFlow, 2);
+          }
+
           points.push({ flow, head });
         }
         newDischargeSystemCurvePoints.push(points);
-
       });
     }
 
-    // --- Suction system curves (NPSH available, allow negative) ---
+    // --- Suction system curves ---
     if (showSuctionCurve) {
       suctionCurveData.forEach((suction) => {
+        const useComponents = suction.components && suction.components.length > 0;
+
         if (
-          suction.staticPressure === undefined ||
-          suction.operatingFlow === undefined ||
-          suction.operatingNpsha === undefined ||
-          suction.operatingFlow <= 0
+          !useComponents && (
+            suction.staticPressure === undefined ||
+            suction.operatingFlow === undefined ||
+            suction.operatingNpsha === undefined ||
+            suction.operatingFlow <= 0
+          )
         )
           return;
 
         const points = [];
-        const axisMaxFlow = Math.ceil(maxFlowNpsh / 10) * 10; // Use NPSH-specific max
+        const axisMaxFlow = Math.ceil(maxFlowNpsh / 10) * 10;
         const numPoints = 100;
 
-        if (suction.operatingFlow > maxFlowNpsh) {
-          maxFlowNpsh = suction.operatingFlow;
+        let opFlowForAxis = suction.operatingFlow || 0;
+        if (useComponents) {
+          // Find max flow among components to size axis
+          opFlowForAxis = Math.max(...(suction.components?.map(c =>
+            convertFlow(c.operatingFlow, c.flowUnit || 'L/min', flowUnit)
+          ) || [0]));
         }
 
-        // Calculate the exponential decay coefficient
-        let k =
-          (suction.staticPressure - suction.operatingNpsha) /
-          Math.pow(suction.operatingFlow, 2);
-        // Force k to be positive to ensure a decreasing curve
-        if (k <= 0) {
-          k = 0.0001;
+        if (opFlowForAxis > maxFlowNpsh) {
+          maxFlowNpsh = opFlowForAxis;
         }
 
-        // Ensure axisMaxFlow covers at least 1.5x the operating flow
-        const minAxisFlow = Math.max(axisMaxFlow, suction.operatingFlow * 1.5);
+        const minAxisFlow = Math.max(axisMaxFlow, opFlowForAxis * 1.5);
 
         for (let i = 0; i <= numPoints; i++) {
           const flow = (minAxisFlow * i) / numPoints;
-          // Exponential decrease formula: NPSHa = staticPressure - k * flow^2
-          const npshAvailable = suction.staticPressure - k * Math.pow(flow, 2);
+          let npshAvailable = 0;
+
+          if (useComponents) {
+            // Suction Aggregation:
+            // NPSHa_total = StaticPressure_total - Sum(Friction_i)
+            // StaticPressure_total = 10.1325 (or base) + Sum(StaticGeo_i) ?
+            // In `SuctionCurveInputs`, we decided:
+            // `staticPressure` field on Suction object serves as the Total Base Pressure (Source).
+            // Components contribute Friction Loss.
+            // Do components contribute Static Height?
+            // In the Modal for Suction, `totalHead = 10.1325 + staticHead - totalHeadLoss`.
+            // `staticHead` there was "Height difference".
+            // So YES, components have Static Head.
+            // NPSHa(Q) = 10.1325 + Sum(Static_i) - Sum(Friction_i(Q)) - Sum(VelocityHead_i(Q))?
+            // Usually velocity head is only relevant at the suction flange.
+            // Intermediate velocity heads cancel out (approx) or purely loss.
+            // Let's stick to the Modal's logic:
+            // Modal calculates `operatingHead` (NPSHa) for that segment.
+            // Segment NPSHa = 10.1325 + Static - Friction - V^2/2g.
+
+            // If we have multiple segments?
+            // Series:
+            // NPSHa at pump = P_source + H_static_total - H_friction_total - V_pump_inlet^2/2g.
+            // The components might represent different pipe sections.
+            // Start Pressure i=0 is 10.1325 (Atm).
+            // We accumulate Static gains/losses and Friction losses.
+            // Velocity Head at the end (pump inlet) is the one that matters for NPSHa.
+            // Which component is at the pump inlet? Probably the last one.
+            // But the Modal calculates V^2/2g for EACH component.
+
+            // Simplified Multi-Component Suction model:
+            // NPSHa(Q) = (10.1325 + Sum(Static_i)) - Sum( Friction_i(Q) ) - V_last_component(Q)^2/2g ?
+            // Or if we just sum the "Losses" from the "Operating Head" derived in components?
+
+            // Component `c`:
+            // H_op = 10.1325 + H_static - H_friction - H_vel.
+            // This `H_op` is "NPSHa if this was the whole system".
+            // We can extract "Effective Loss at Q_op" = (10.1325 + H_static) - H_op.
+            // Loss L_i = H_friction + H_vel.
+
+            // So NPSHa_total(Q) = P_atm + Sum(H_static_i) - Sum( L_i(Q) ).
+            // Where L_i(Q) scales with Q^2.
+            // L_i(Q_op) = (10.1325 + H_static_i) - H_op_i. (All in Meters).
+            // Wait, `10.1325` is in H_op calculation.
+            // If we sum losses, we shouldn't sum 10.1325 multiple times.
+            // Correct.
+
+            // Calculation:
+            // 1. Total Static Head (Physical) = Sum(c.staticHead).
+            // 2. Base Pressure = 10.1325 (m).
+            // 3. For each component `c`:
+            //    Calculate `Loss_Coeff_i`:
+            //    Loss_i_at_Op = (10.1325 + c.staticHead) - c.operatingHead.
+            //    (This recovers Friction + VelHead).
+            //    k_i = Loss_i_at_Op / c.operatingFlow^2.
+            // 4. Total NPSHa(Q) = (10.1325 + TotalStatic) - Sum( k_i * Q^2 ).
+
+            // Unit considerations:
+            // `c.staticHead` and `c.operatingHead` are in Meters (stored by Modal).
+            // `c.operatingFlow` in component unit.
+
+            let totalStaticGeo = 0;
+            let totalLossCoeff = 0;
+
+            suction.components?.forEach(c => {
+              const hStat = c.staticHead; // Meters
+              const hOp = c.operatingHead; // Meters
+              const qOp = convertFlow(c.operatingFlow, c.flowUnit || 'L/min', flowUnit); // Chart Unit
+
+              totalStaticGeo += hStat;
+
+              // Loss at Q_op (Meters)
+              // Note: Modal calc: opHead = 10.1325 + static - losses
+              // So Losses = 10.1325 + static - opHead.
+              // This assumes Modal used 10.1325 exactly.
+              // Ideally we should store `frictionHead` directly to avoid this reverse math dependent on constants.
+              // But for now, reverse math is consistent with Modal.
+
+              const lossAtOp = (10.1325 + hStat) - hOp;
+              if (qOp > 0) {
+                const k = lossAtOp / Math.pow(qOp, 2);
+                totalLossCoeff += k;
+              }
+            });
+
+            // Total NPSHa in Meters
+            const npshaMeters = (10.1325 + totalStaticGeo) - (totalLossCoeff * Math.pow(flow, 2));
+
+            // Convert to Display Unit
+            npshAvailable = convertHead(npshaMeters, 'm', headUnit);
+
+          } else {
+            // Legacy Logic
+            // Calculate k based on inputs
+            let k =
+              (suction.staticPressure - suction.operatingNpsha) /
+              Math.pow(suction.operatingFlow, 2);
+            if (k <= 0) k = 0.0001;
+
+            npshAvailable = suction.staticPressure - k * Math.pow(flow, 2);
+          }
+
           points.push({ flow, head: npshAvailable });
         }
 
@@ -908,7 +1150,7 @@ export function PumpCurveDashboard() {
           const localMin = Math.min(...points.map((p) => p.head));
           const localMax = Math.max(...points.map((p) => p.head));
           minNpsh = Math.min(minNpsh, localMin);
-          maxNpshNpsh = Math.max(maxNpshNpsh, localMax); // Update NPSH max
+          maxNpshNpsh = Math.max(maxNpshNpsh, localMax);
         }
 
         newSuctionCurvePoints.push(points);

@@ -68,13 +68,34 @@ export interface PumpData {
   speedAdjustmentEnabled?: boolean;
 }
 
+export interface SystemCurveComponent {
+  id: string;
+  name: string;
+  staticHead: number; // For discharge: static head. For suction: static pressure
+  operatingFlow: number;
+  operatingHead: number; // Friction loss at operating flow
+  flowUnit?: FlowUnit;
+  headUnit?: HeadUnit;
+  isFrictionIncluded?: boolean; // If true, operatingHead includes friction. If false, it might just be static... typically this is always friction+static or just friction?
+  // Actually, per requirements: "Static Heads and operating heads are all added together".
+  // The calculator returns "Total Head Loss" (friction).
+  // The input has "Static Head" and "Operating Head" (Total at flow).
+  // So a component has a Static Head and a Friction Head (calculated from Operating Head - Static Head).
+  length?: number;
+  diameter?: number;
+  nominalSize?: string;
+  material?: string;
+  cValue?: number;
+}
+
 export interface SystemCurveData {
   id: string;
-  staticHead: number;
-  operatingFlow: number;
-  operatingHead: number;
   name?: string;
+  staticHead: number; // Legacy/Total
+  operatingFlow: number; // Legacy/Total
+  operatingHead: number; // Legacy/Total
   type?: 'discharge' | 'suction';
+  components?: SystemCurveComponent[];
 }
 
 export interface SavedPump {
@@ -167,6 +188,7 @@ export interface SuctionCurveData {
   operatingFlow: number;
   frictionLoss?: number;
   velocityHead?: number;
+  components?: SystemCurveComponent[];
 }
 
 export interface SuctionCurvePoint {
