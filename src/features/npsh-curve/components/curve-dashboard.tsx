@@ -42,72 +42,72 @@ interface PerformancePoint {
 }
 
 
-  interface EnergySavingsDisplayProps {
-    baseRpm: number;
-    currentRpm: number;
-    basePower: number; // Power at BEP, base speed
-    operatingHoursPerDay?: number;
-    electricityCostPerKwh?: number;
+interface EnergySavingsDisplayProps {
+  baseRpm: number;
+  currentRpm: number;
+  basePower: number; // Power at BEP, base speed
+  operatingHoursPerDay?: number;
+  electricityCostPerKwh?: number;
+}
+
+function EnergySavingsDisplay({
+  baseRpm,
+  currentRpm,
+  basePower,
+  operatingHoursPerDay = 24,
+  electricityCostPerKwh = 0.15
+}: EnergySavingsDisplayProps) {
+  const speedRatio = currentRpm / baseRpm;
+  const powerRatio = Math.pow(speedRatio, 3);
+  const currentPower = basePower * powerRatio;
+  const powerSavings = basePower - currentPower;
+  const percentSavings = ((1 - powerRatio) * 100).toFixed(1);
+
+  const dailySavings =
+    powerSavings * operatingHoursPerDay * electricityCostPerKwh;
+  const annualSavings = dailySavings * 365;
+
+  if (speedRatio >= 0.99 && speedRatio <= 1.01) {
+    return null; // No significant speed change
   }
 
-  function EnergySavingsDisplay({
-    baseRpm,
-    currentRpm,
-    basePower,
-    operatingHoursPerDay = 24,
-    electricityCostPerKwh = 0.15
-  }: EnergySavingsDisplayProps) {
-    const speedRatio = currentRpm / baseRpm;
-    const powerRatio = Math.pow(speedRatio, 3);
-    const currentPower = basePower * powerRatio;
-    const powerSavings = basePower - currentPower;
-    const percentSavings = ((1 - powerRatio) * 100).toFixed(1);
-
-    const dailySavings =
-      powerSavings * operatingHoursPerDay * electricityCostPerKwh;
-    const annualSavings = dailySavings * 365;
-
-    if (speedRatio >= 0.99 && speedRatio <= 1.01) {
-      return null; // No significant speed change
-    }
-
-    return (
-      <div className='bg-card rounded-lg border p-4 text-sm'>
-        <h4 className='mb-2 flex items-center gap-2 font-semibold'>
-          <Zap className='h-4 w-4' />
-          Energy Impact
-        </h4>
-        <div className='grid grid-cols-2 gap-3'>
-          <div>
-            <p className='text-muted-foreground text-xs'>Power at Base Speed</p>
-            <p className='font-medium'>{basePower.toFixed(2)} kW</p>
-          </div>
-          <div>
-            <p className='text-muted-foreground text-xs'>
-              Power at Current Speed
-            </p>
-            <p className='font-medium'>{currentPower.toFixed(2)} kW</p>
-          </div>
-          <div>
-            <p className='text-muted-foreground text-xs'>Power Change</p>
-            <Badge variant={powerSavings > 0 ? 'default' : 'destructive'}>
-              {powerSavings > 0 ? '-' : '+'}
-              {Math.abs(powerSavings).toFixed(2)} kW ({percentSavings}%)
-            </Badge>
-          </div>
-          <div>
-            <p className='text-muted-foreground text-xs'>Annual Savings</p>
-            <p className='font-medium text-green-600'>
-              ${annualSavings.toFixed(0)}/year
-            </p>
-          </div>
+  return (
+    <div className='bg-card rounded-lg border p-4 text-sm'>
+      <h4 className='mb-2 flex items-center gap-2 font-semibold'>
+        <Zap className='h-4 w-4' />
+        Energy Impact
+      </h4>
+      <div className='grid grid-cols-2 gap-3'>
+        <div>
+          <p className='text-muted-foreground text-xs'>Power at Base Speed</p>
+          <p className='font-medium'>{basePower.toFixed(2)} kW</p>
         </div>
-        <p className='text-muted-foreground mt-2 text-xs'>
-          Based on {operatingHoursPerDay}h/day @ ${electricityCostPerKwh}/kWh
-        </p>
+        <div>
+          <p className='text-muted-foreground text-xs'>
+            Power at Current Speed
+          </p>
+          <p className='font-medium'>{currentPower.toFixed(2)} kW</p>
+        </div>
+        <div>
+          <p className='text-muted-foreground text-xs'>Power Change</p>
+          <Badge variant={powerSavings > 0 ? 'default' : 'destructive'}>
+            {powerSavings > 0 ? '-' : '+'}
+            {Math.abs(powerSavings).toFixed(2)} kW ({percentSavings}%)
+          </Badge>
+        </div>
+        <div>
+          <p className='text-muted-foreground text-xs'>Annual Savings</p>
+          <p className='font-medium text-green-600'>
+            ${annualSavings.toFixed(0)}/year
+          </p>
+        </div>
       </div>
-    );
-  }
+      <p className='text-muted-foreground mt-2 text-xs'>
+        Based on {operatingHoursPerDay}h/day @ ${electricityCostPerKwh}/kWh
+      </p>
+    </div>
+  );
+}
 
 
 export function PumpCurveDashboard() {
@@ -222,10 +222,10 @@ export function PumpCurveDashboard() {
       prev.map((pump) => ({
         ...pump,
         maxFlow: convertFlow(pump.maxFlow, originalFlowUnit, newUnit),
-         manualBepFlow:
-        pump.manualBepFlow && pump.manualBepFlow > 0
-          ? convertFlow(pump.manualBepFlow, originalFlowUnit, newUnit)
-          : pump.manualBepFlow,
+        manualBepFlow:
+          pump.manualBepFlow && pump.manualBepFlow > 0
+            ? convertFlow(pump.manualBepFlow, originalFlowUnit, newUnit)
+            : pump.manualBepFlow,
         // Fix: Convert efficiency and motor_power flow values
         efficiency:
           pump.efficiency?.map((point) => ({
@@ -243,9 +243,9 @@ export function PumpCurveDashboard() {
           })) || [],
         ...(pump.oldSpeed && pump.newSpeed
           ? {
-              oldSpeed: convertFlow(pump.oldSpeed, originalFlowUnit, newUnit),
-              newSpeed: convertFlow(pump.newSpeed, originalFlowUnit, newUnit)
-            }
+            oldSpeed: convertFlow(pump.oldSpeed, originalFlowUnit, newUnit),
+            newSpeed: convertFlow(pump.newSpeed, originalFlowUnit, newUnit)
+          }
           : {})
       }))
     );
@@ -749,11 +749,7 @@ export function PumpCurveDashboard() {
 
       // SECOND: Now determine BEP (manual or automatic)
       if (pump.manualBepFlow && pump.manualBepFlow > 0) {
-        bepFlow = convertFlow(
-          pump.manualBepFlow * speedRatio,
-          'L/min',
-          flowUnit
-        );
+        bepFlow = pump.manualBepFlow * speedRatio;
         if (pumpPoints.length > 0) {
           bepHead = interpolateHeadAtFlow(pumpPoints, bepFlow);
         }
@@ -861,11 +857,11 @@ export function PumpCurveDashboard() {
           const head =
             system.staticHead +
             (system.operatingHead - system.staticHead) *
-              Math.pow(flow / system.operatingFlow, 2);
+            Math.pow(flow / system.operatingFlow, 2);
           points.push({ flow, head });
         }
         newDischargeSystemCurvePoints.push(points);
-        
+
       });
     }
 
@@ -1221,10 +1217,26 @@ export function PumpCurveDashboard() {
       manualBepFlow: savedPump.manualBepFlow
         ? convertFlow(savedPump.manualBepFlow, savedPump.flowUnit, flowUnit)
         : null,
-      pvsq: savedPump.pvsq || [],
-      npshRequired: savedPump.npshRequired || [],
-      motor_power: savedPump.motorPower || [],
-      efficiency: savedPump.efficiency || []
+      pvsq:
+        savedPump.pvsq?.map((p) => ({
+          flow: convertFlow(p.flow, savedPump.flowUnit, 'L/min'),
+          head: convertHead(p.head, savedPump.headUnit, 'm')
+        })) || [],
+      npshRequired:
+        savedPump.npshRequired?.map((p: any) => ({
+          flow: convertFlow(p.flow, savedPump.flowUnit, 'L/min'),
+          head: convertHead(p.head, savedPump.headUnit, 'm')
+        })) || [],
+      motor_power:
+        savedPump.motorPower?.map((p) => ({
+          ...p,
+          flow: convertFlow(p.flow, savedPump.flowUnit, flowUnit)
+        })) || [],
+      efficiency:
+        savedPump.efficiency?.map((p) => ({
+          ...p,
+          flow: convertFlow(Number(p.flow), savedPump.flowUnit, flowUnit).toString()
+        })) || []
     };
     setActiveSavedPumps((prev) => [...prev, newPump]);
   };
@@ -1277,9 +1289,9 @@ export function PumpCurveDashboard() {
       pvsq: pump.pvsq || [],
       npshRequired: pump.npshr
         ? pump.npshr.map((point: any) => ({
-            flow: point.flow,
-            head: point.head
-          }))
+          flow: point.flow,
+          head: point.head
+        }))
         : [],
       brand: pump.brand,
       model: pump.model,
@@ -1298,13 +1310,13 @@ export function PumpCurveDashboard() {
       manualBepFlow: pump.manual_bep_flow || undefined,
       motorPower: pump.motor_power || [],
       is_public: pump.is_public || false,
-      
+
       pumpClass: pump.pump_class,
-    application: pump.application,
-    impellerType: pump.impeller_type,
-    otherTraits: pump.other_traits || [],
-    poles: pump.poles,
-    minTemp: pump.min_temp,
+      application: pump.application,
+      impellerType: pump.impeller_type,
+      otherTraits: pump.other_traits || [],
+      poles: pump.poles,
+      minTemp: pump.min_temp,
     };
   }
 
