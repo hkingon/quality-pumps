@@ -196,14 +196,14 @@ export function SignInView() {
             Continue with Google
           </Button>
 
-          {/* <div className='text-center text-sm'>
+          <div className='text-center text-sm'>
             <Link
               href='/auth/forgot-password'
               className='text-primary hover:underline'
             >
               Forgot your password?
             </Link>
-          </div> */}
+          </div>
 
           <div className='text-center text-sm'>
             Don&apos;t have an account?{' '}

@@ -31,41 +31,37 @@ export function ResetPasswordView() {
   // const supabase = createClient();
 
   useEffect(() => {
-    const handlePasswordReset = async () => {
-      // Get the code from URL parameters (PKCE flow)
-      const code = searchParams.get('code');
+    const checkSession = async () => {
+      // Check if we have an active session (handled by auth/callback)
+      const {
+        data: { session }
+      } = await supabase.auth.getSession();
 
-      if (!code) {
-        setError(
-          'Invalid or expired reset link. Please request a new password reset.'
-        );
+      if (session) {
+        console.log('Password reset session active');
         return;
       }
 
-      try {
-        // Exchange the code for a session using PKCE
-        const { data, error } =
-          await supabase.auth.exchangeCodeForSession(code);
-
+      // Fallback: Check for code in URL if not redirected via callback
+      const code = searchParams.get('code');
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) {
           console.error('Code exchange error:', error);
           setError(
             'Invalid or expired reset link. Please request a new password reset.'
           );
-          return;
         }
-
-        if (data.session) {
-          console.log('Password reset session established successfully');
-          // Session is now active and user can reset password
-        }
-      } catch (err) {
-        console.error('Reset link error:', err);
-        setError('Failed to verify reset link. Please try again.');
+      } else {
+        // No session and no code - effectively unauthorized if trying to access directly
+        // But we'll let the user see the form, they just won't be able to submit successfully
+        // without a session.
+        // Optionally, we could redirect to sign-in here.
+        console.log('No active session or code found');
       }
     };
 
-    handlePasswordReset();
+    checkSession();
   }, [searchParams, supabase.auth]);
 
   const validatePassword = (password: string) => {

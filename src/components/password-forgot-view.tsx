@@ -31,8 +31,11 @@ export function ForgotPasswordView() {
     setSuccess('');
 
     try {
+      const resetUrl = new URL('/auth/callback', window.location.origin);
+      resetUrl.searchParams.set('redirect_to', '/auth/reset-password');
+
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/reset-password`
+        redirectTo: resetUrl.toString()
       });
 
       if (error) throw error;
