@@ -21,6 +21,7 @@ import {
     SelectValue
 } from '@/components/ui/select';
 import { SystemCurveComponent } from '@/types';
+import { FlowUnit, HeadUnit, convertHead } from '@/lib/units';
 
 interface FrictionLossModalProps {
     isOpen: boolean;
@@ -28,21 +29,10 @@ interface FrictionLossModalProps {
     onSave: (component: SystemCurveComponent) => void;
     initialData?: SystemCurveComponent;
     mode: 'discharge' | 'suction';
-}
-
-function mapHeadUnitToInternal(
-    unit: 'm/Head' | 'Bar' | 'kPa'
-): 'm' | 'kPa' | 'psi' {
-    switch (unit) {
-        case 'm/Head':
-            return 'm';
-        case 'kPa':
-            return 'kPa';
-        case 'Bar':
-            return 'kPa';
-        default:
-            return 'm';
-    }
+    globalFlowUnit: FlowUnit;
+    globalHeadUnit: HeadUnit;
+    onGlobalFlowUnitChange: (unit: FlowUnit) => void;
+    onGlobalHeadUnitChange: (unit: HeadUnit) => void;
 }
 
 export function FrictionLossModal({
@@ -50,22 +40,20 @@ export function FrictionLossModal({
     onClose,
     onSave,
     initialData,
-    mode
+    mode,
+    globalFlowUnit,
+    globalHeadUnit,
+    onGlobalFlowUnitChange,
+    onGlobalHeadUnitChange
 }: FrictionLossModalProps) {
     // State initialization matching FrictionLossPage but with prop defaults
     const [flowRate, setFlowRate] = useState(initialData?.operatingFlow || 0);
-    const [flowRateUnit, setFlowRateUnit] = useState<'L/sec' | 'L/min' | 'm³/hr'>(
-        (initialData?.flowUnit as 'L/sec' | 'L/min' | 'm³/hr') || 'L/sec'
-    );
 
     // Initialize persisted inputs if available
     const [pipeLength, setPipeLength] = useState(initialData?.length || 0);
     const [staticHead, setStaticHead] = useState(initialData?.staticHead || 0);
     const [nominalBore, setNominalBore] = useState(initialData?.nominalSize || '40');
     const [pipeType, setPipeType] = useState<PipeType>((initialData?.material as PipeType) || 'PE_PN12@5');
-    const [headUnit, setHeadUnit] = useState<'m/Head' | 'Bar' | 'kPa'>(
-        (initialData?.headUnit as 'm/Head' | 'Bar' | 'kPa') || 'm/Head'
-    );
 
     // If we are editing, we might want to try to reverse calc or just start fresh?
     // The requirement says "Adding or editing a curve brings up a 'floating' view of the Friction Loss calculator where the user can edit the Pipe Type, Nominal Bore, Flow Rate, Pipe Length, Static Head and save it to the curve."
@@ -81,26 +69,8 @@ export function FrictionLossModal({
         return data || { id: 160, c: 150 };
     }, [nominalBore, pipeType]);
 
-    function convertHead(
-        value: number,
-        fromUnit: 'm/Head' | 'Bar' | 'kPa',
-        toUnit: 'm/Head' | 'Bar' | 'kPa' = 'm/Head'
-    ) {
-        let standardValue = value;
-        if (fromUnit === 'Bar') {
-            standardValue = value * 10;
-        } else if (fromUnit === 'kPa') {
-            standardValue = value / 10;
-        }
-        if (toUnit === fromUnit) return value;
-        if (toUnit === 'm/Head') return standardValue;
-        if (toUnit === 'Bar') return standardValue / 10;
-        if (toUnit === 'kPa') return standardValue * 10;
-        return standardValue;
-    }
-
     const standardizedFlowRate = useMemo(() => {
-        switch (flowRateUnit) {
+        switch (globalFlowUnit) {
             case 'L/min':
                 return flowRate / 60;
             case 'm³/hr':
@@ -109,7 +79,7 @@ export function FrictionLossModal({
             default:
                 return flowRate;
         }
-    }, [flowRate, flowRateUnit]);
+    }, [flowRate, globalFlowUnit]);
 
     const totalHeadLoss = useMemo(() => {
         const Q = standardizedFlowRate / 1000;
@@ -124,8 +94,8 @@ export function FrictionLossModal({
     }, [standardizedFlowRate, pipeLength, id, c]);
 
     const units = {
-        flowRate: flowRateUnit,
-        head: headUnit,
+        flowRate: globalFlowUnit,
+        head: globalHeadUnit,
         id: 'mm',
         velocity: 'm/s'
     };
@@ -147,14 +117,14 @@ export function FrictionLossModal({
         } else {
             totalHead = 10.1325 + staticHead - totalHeadLoss - velocityHead;
         }
-        const converted = convertHead(totalHead, 'm/Head', headUnit).toFixed(2);
-        return `${flowRate.toFixed(2)}${flowRateUnit} @ ${converted}${headUnit}`;
+        const converted = convertHead(totalHead, 'm', globalHeadUnit).toFixed(2);
+        return `${flowRate.toFixed(2)}${globalFlowUnit} @ ${converted}${globalHeadUnit}`;
     }, [
         flowRate,
-        flowRateUnit,
+        globalFlowUnit,
         totalHeadLoss,
         staticHead,
-        headUnit,
+        globalHeadUnit,
         mode,
         velocityHead
     ]);
@@ -188,7 +158,7 @@ export function FrictionLossModal({
             staticHead: staticHead,
             operatingFlow: flowRate,
             operatingHead: calculatedHead,
-            flowUnit: flowRateUnit,
+            flowUnit: globalFlowUnit,
             headUnit: 'm', // Force internal storage as 'm' if possible or keep user unit?
 
             // Persist calculator inputs
@@ -232,7 +202,7 @@ export function FrictionLossModal({
         onSave({
             ...component,
             headUnit: 'm', // The calculator seems to work in meters internally for head loss.
-            flowUnit: flowRateUnit,
+            flowUnit: globalFlowUnit,
             // We'll treat `staticHead` and `operatingHead` as fitting `headUnit`?
             // Actually `operatingHead` derived from `totalHeadLoss` (m) + `staticHead` (m).
             // So they are in meters.
@@ -259,18 +229,18 @@ export function FrictionLossModal({
                         <div className='flex flex-wrap items-center gap-4'>
                             <div className='flex items-center gap-2'>
                                 <span><strong>Head Unit:</strong></span>
-                                <Select value={headUnit} onValueChange={(val: any) => setHeadUnit(val)}>
+                                <Select value={globalHeadUnit} onValueChange={(val: any) => onGlobalHeadUnitChange(val)}>
                                     <SelectTrigger className='w-24'><SelectValue /></SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value='m/Head'>m/Head</SelectItem>
-                                        <SelectItem value='Bar'>Bar</SelectItem>
+                                        <SelectItem value='m'>m/Head</SelectItem>
                                         <SelectItem value='kPa'>kPa</SelectItem>
+                                        <SelectItem value='psi'>psi</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
                             <div className='flex items-center gap-2'>
                                 <span><strong>Flow Unit:</strong></span>
-                                <Select value={flowRateUnit} onValueChange={(val: any) => setFlowRateUnit(val)}>
+                                <Select value={globalFlowUnit} onValueChange={(val: any) => onGlobalFlowUnitChange(val)}>
                                     <SelectTrigger className='w-24'><SelectValue /></SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value='L/sec'>L/sec</SelectItem>
@@ -288,19 +258,19 @@ export function FrictionLossModal({
                             setPipeLength={setPipeLength}
                             staticHead={staticHead}
                             setStaticHead={setStaticHead}
-                            flowRateUnit={flowRateUnit}
+                            flowRateUnit={globalFlowUnit}
                         />
                     </div>
 
                     {/* Results Column */}
                     <div className='w-full space-y-4 lg:w-1/2'>
                         <FrictionResults
-                            totalHeadLoss={convertHead(totalHeadLoss, 'm/Head', headUnit)}
+                            totalHeadLoss={convertHead(totalHeadLoss, 'm', globalHeadUnit)}
                             totalSystemDuty={totalSystemDuty}
                             velocity={velocity}
                             minID={minID}
                             maxID={maxID}
-                            units={{ ...units, head: headUnit }}
+                            units={{ ...units, head: globalHeadUnit }}
                         >
                             <div className='mt-6 flex justify-end gap-3'>
                                 <Button variant='outline' onClick={onClose}>Cancel</Button>

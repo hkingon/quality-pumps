@@ -1659,6 +1659,10 @@ export function PumpCurveDashboard() {
                       index={index}
                       updateSystemCurve={updateDischargeSystemCurve}
                       removeSystemCurve={removeDischargeSystemCurve}
+                      globalFlowUnit={flowUnit}
+                      globalHeadUnit={headUnit}
+                      onGlobalFlowUnitChange={handleFlowUnitChange}
+                      onGlobalHeadUnitChange={handleHeadUnitChange}
                     />
                   ))}
                 {showDischargeSystemCurve && (
@@ -1694,6 +1698,10 @@ export function PumpCurveDashboard() {
                       index={index}
                       updateSuctionCurve={updateSuctionCurve}
                       removeSuctionCurve={removeSuctionCurve}
+                      globalFlowUnit={flowUnit}
+                      globalHeadUnit={headUnit}
+                      onGlobalFlowUnitChange={handleFlowUnitChange}
+                      onGlobalHeadUnitChange={handleHeadUnitChange}
                     />
                   ))}
                 {showSuctionCurve && (

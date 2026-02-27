@@ -876,6 +876,10 @@ export function PumpCurveDashboard() {
                       index={index}
                       updateSystemCurve={updateSystemCurve}
                       removeSystemCurve={removeSystemCurve}
+                      globalFlowUnit={flowUnit}
+                      globalHeadUnit={headUnit}
+                      onGlobalFlowUnitChange={handleFlowUnitChange}
+                      onGlobalHeadUnitChange={handleHeadUnitChange}
                     />
                   ))}
 
