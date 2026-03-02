@@ -163,11 +163,17 @@ export function SavedPumpsList({
 
   // Helper function to check if pump matches multi-select filter
   const matchesMultiSelect = (
-    pumpValue: string | undefined,
+    pumpValue: string | string[] | undefined,
     selectedValues: string[]
   ): boolean => {
     if (selectedValues.length === 0) return true;
     if (!pumpValue) return false;
+
+    if (Array.isArray(pumpValue)) {
+      // If pump has multiple values, check if any of them are in the selected values
+      return pumpValue.some(val => selectedValues.includes(val));
+    }
+
     return selectedValues.includes(pumpValue);
   };
 
@@ -224,11 +230,13 @@ export function SavedPumpsList({
           const matchesPhase = filters.phases.some((phase) => {
             if (phase === '1 Phase') return pumpPhaseStr === '1';
             if (phase === '3 Phase') return pumpPhaseStr === '3';
-            if (phase === 'DC')
-              return (
-                pump.type?.toLowerCase().includes('dc') ||
-                pump.type?.toLowerCase().includes('solar')
+            if (phase === 'DC') {
+              const typeArr = Array.isArray(pump.type) ? pump.type : [pump.type || ''];
+              return typeArr.some(t =>
+                t.toLowerCase().includes('dc') ||
+                t.toLowerCase().includes('solar')
               );
+            }
             return false;
           });
           if (!matchesPhase) return false;
@@ -239,7 +247,7 @@ export function SavedPumpsList({
           return false;
 
         // Brand
-        if (!matchesMultiSelect(pump.brand, filters.brand)) return false;
+        if (!matchesMultiSelect(pump.brand || '', filters.brand)) return false;
 
         // Numeric range filters
         if (!isInRange(pump.kw, filters.powerRange)) return false;
@@ -369,7 +377,7 @@ export function SavedPumpsList({
 
         const bepDistance = Math.sqrt(
           Math.pow(bepFlowConverted - operatingFlow, 2) +
-            Math.pow(bepHeadConverted - operatingHead, 2)
+          Math.pow(bepHeadConverted - operatingHead, 2)
         );
 
         return {
@@ -639,13 +647,12 @@ export function SavedPumpsList({
             return (
               <li
                 key={pump.id}
-                className={`flex items-center justify-between rounded border p-2 ${
-                  pump.canMeetDuty && pump.score <= 1.2
-                    ? 'border-green-300 bg-green-100 dark:border-green-800 dark:bg-green-950'
-                    : pump.canMeetDuty && pump.score > 1.2
-                      ? 'border-yellow-300 bg-yellow-100 dark:border-yellow-800 dark:bg-yellow-950'
-                      : 'border-red-300 bg-red-100 dark:border-red-800 dark:bg-red-950'
-                }`}
+                className={`flex items-center justify-between rounded border p-2 ${pump.canMeetDuty && pump.score <= 1.2
+                  ? 'border-green-300 bg-green-100 dark:border-green-800 dark:bg-green-950'
+                  : pump.canMeetDuty && pump.score > 1.2
+                    ? 'border-yellow-300 bg-yellow-100 dark:border-yellow-800 dark:bg-yellow-950'
+                    : 'border-red-300 bg-red-100 dark:border-red-800 dark:bg-red-950'
+                  }`}
               >
                 <div className='mr-2 truncate'>
                   <Tooltip>
@@ -688,11 +695,22 @@ export function SavedPumpsList({
                     Head: {pump.convertedMaxHead.toFixed(1)} {headUnit}, Flow:{' '}
                     {pump.convertedMaxFlow.toFixed(1)} {flowUnit}
                   </div>
-                  {pump.brand && (
-                    <div className='text-muted-foreground text-xs'>
-                      Brand: {pump.brand} | Type: {pump.type || 'N/A'}
+                  <div className='flex items-center gap-1 text-muted-foreground text-xs'>
+                    Brand: {pump.brand} | Type:
+                    <div className='flex flex-wrap gap-1 ml-1'>
+                      {Array.isArray(pump.type) ? (
+                        pump.type.map((t) => (
+                          <Badge key={t} variant='secondary' className='px-1 py-0 text-[10px] h-4'>
+                            {t}
+                          </Badge>
+                        ))
+                      ) : (
+                        <Badge variant='secondary' className='px-1 py-0 text-[10px] h-4'>
+                          {pump.type || 'N/A'}
+                        </Badge>
+                      )}
                     </div>
-                  )}
+                  </div>
                   {operatingFlow > 0 && operatingHead > 0 && (
                     <div className='text-muted-foreground text-xs'>
                       BEP: {pump.bepFlow.toFixed(1)} {flowUnit} at{' '}

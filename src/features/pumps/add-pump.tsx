@@ -49,8 +49,8 @@ interface PumpFormData {
   kw: string;
   inlet: string;
   outlet: string;
-  configuration: string;
-  type: string;
+  configuration: string[];
+  type: string[];
   voltage: string;
   amps: string;
   phases: string;
@@ -67,8 +67,8 @@ interface PumpFormData {
   hz: string;
   manualBepFlow?: string;
 
-  pumpClass?: string;
-  application?: string;
+  pumpClass: string[];
+  application: string[];
   impellerType?: string;
   otherTraits?: string[];
   poles?: number | null;
@@ -91,8 +91,8 @@ const blankPump: PumpFormData = {
   kw: '',
   inlet: '',
   outlet: '',
-  configuration: '',
-  type: '',
+  configuration: [],
+  type: [],
   voltage: '',
   amps: '',
   phases: '',
@@ -109,8 +109,8 @@ const blankPump: PumpFormData = {
   hz: '',
   manualBepFlow: '',
 
-  pumpClass: '',
-  application: '',
+  pumpClass: [],
+  application: [],
   impellerType: '',
   otherTraits: [],
   poles: null,
@@ -370,88 +370,49 @@ const AddPump: React.FC = () => {
     }
   };
 
-  const handleCustomTypeSubmit = async (): Promise<void> => {
+  const handleCustomTypeSubmit = (): void => {
     if (customType.trim()) {
       const newType = customType.trim();
-      
-      // Check if it already exists in the current list
-      if (dynamicPumpTypes.includes(newType)) {
-        handleFormChange('type', newType);
-        setShowCustomType(false);
-        setCustomType('');
-        return;
-      }
 
-      // Save to database if admin
-      if (isAdmin) {
-        const saved = await saveCustomOption(newType, 'type');
-        if (saved) {
-          const updatedTypes = [...dynamicPumpTypes.filter(t => t !== 'AddNew'), newType, 'AddNew'];
-          setDynamicPumpTypes(updatedTypes);
-        }
-      } else {
-        // Non-admin: just add locally for this session
-        const updatedTypes = [...dynamicPumpTypes.filter(t => t !== 'AddNew'), newType, 'AddNew'];
+      if (!dynamicPumpTypes.includes(newType)) {
+        const updatedTypes = [...basePumpTypes, newType, 'AddNew'];
         setDynamicPumpTypes(updatedTypes);
-        toast.info('Custom type added.');
       }
 
-      handleFormChange('type', newType);
+      setPumpForm((prev) => ({
+        ...prev,
+        type: [...prev.type, newType]
+      }));
       setShowCustomType(false);
       setCustomType('');
     }
   };
 
-  const handleCustomConfigurationSubmit = async (): Promise<void> => {
+  const handleCustomConfigurationSubmit = (): void => {
     if (customConfiguration.trim()) {
       const newConfig = customConfiguration.trim();
-      
-      if (dynamicConfigurations.includes(newConfig)) {
-        handleFormChange('configuration', newConfig);
-        setShowCustomConfiguration(false);
-        setCustomConfiguration('');
-        return;
-      }
 
-      if (isAdmin) {
-        const saved = await saveCustomOption(newConfig, 'configuration');
-        if (saved) {
-          const updatedConfigs = [...dynamicConfigurations.filter(c => c !== 'AddNew'), newConfig, 'AddNew'];
-          setDynamicConfigurations(updatedConfigs);
-        }
-      } else {
-        const updatedConfigs = [...dynamicConfigurations.filter(c => c !== 'AddNew'), newConfig, 'AddNew'];
+      if (!dynamicConfigurations.includes(newConfig)) {
+        const updatedConfigs = [...baseConfigurations, newConfig, 'AddNew'];
         setDynamicConfigurations(updatedConfigs);
-        toast.info('Custom configuration added.');
       }
 
-      handleFormChange('configuration', newConfig);
+      setPumpForm((prev) => ({
+        ...prev,
+        configuration: [...prev.configuration, newConfig]
+      }));
       setShowCustomConfiguration(false);
       setCustomConfiguration('');
     }
   };
 
-  const handleCustomVoltageSubmit = async (): Promise<void> => {
+  const handleCustomVoltageSubmit = (): void => {
     if (customVoltage.trim()) {
       const newVoltage = customVoltage.trim();
-      
-      if (dynamicVoltageOptions.includes(newVoltage)) {
-        handleFormChange('voltage', newVoltage);
-        setShowCustomVoltage(false);
-        setCustomVoltage('');
-        return;
-      }
 
-      if (isAdmin) {
-        const saved = await saveCustomOption(newVoltage, 'voltage');
-        if (saved) {
-          const updatedVoltages = [...dynamicVoltageOptions.filter(v => v !== 'AddNew'), newVoltage, 'AddNew'];
-          setDynamicVoltageOptions(updatedVoltages);
-        }
-      } else {
-        const updatedVoltages = [...dynamicVoltageOptions.filter(v => v !== 'AddNew'), newVoltage, 'AddNew'];
+      if (!dynamicVoltageOptions.includes(newVoltage)) {
+        const updatedVoltages = [...baseVoltageOptions, newVoltage, 'AddNew'];
         setDynamicVoltageOptions(updatedVoltages);
-        toast.info('Custom voltage added.');
       }
 
       handleFormChange('voltage', newVoltage);
@@ -605,21 +566,24 @@ const AddPump: React.FC = () => {
 
                   <div className='space-y-2'>
                     <Label htmlFor='type'>Type</Label>
-                    <Select
-                      value={pumpForm.type}
-                      onValueChange={handleTypeChange}
+                    <MultiSelectFilter
+                      label=''
+                      options={dynamicPumpTypes.filter(t => t !== 'AddNew' && t !== 'Add New')}
+                      selected={pumpForm.type}
+                      onSelectionChange={(selected) =>
+                        setPumpForm((prev) => ({ ...prev, type: selected }))
+                      }
+                      placeholder='Select pump types...'
+                    />
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      className='mt-2'
+                      onClick={() => setShowCustomType(true)}
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select pump type' />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {dynamicPumpTypes.map((type) => (
-                          <SelectItem key={type} value={type}>
-                            {type}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      <Plus className='mr-2 h-4 w-4' />
+                      Add Custom Type
+                    </Button>
                     {showCustomType && (
                       <div className='mt-2 flex gap-2'>
                         <Input
@@ -651,21 +615,27 @@ const AddPump: React.FC = () => {
 
                   <div className='space-y-2'>
                     <Label htmlFor='configuration'>Configuration</Label>
-                    <Select
-                      value={pumpForm.configuration}
-                      onValueChange={handleConfigurationChange}
+                    <MultiSelectFilter
+                      label=''
+                      options={dynamicConfigurations.filter(c => c !== 'AddNew' && c !== 'Add New')}
+                      selected={pumpForm.configuration}
+                      onSelectionChange={(selected) =>
+                        setPumpForm((prev) => ({
+                          ...prev,
+                          configuration: selected
+                        }))
+                      }
+                      placeholder='Select configurations...'
+                    />
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      className='mt-2'
+                      onClick={() => setShowCustomConfiguration(true)}
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select configuration' />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {dynamicConfigurations.map((config) => (
-                          <SelectItem key={config} value={config}>
-                            {config}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      <Plus className='mr-2 h-4 w-4' />
+                      Add Custom Configuration
+                    </Button>
                     {showCustomConfiguration && (
                       <div className='mt-2 flex gap-2'>
                         <Input
@@ -709,57 +679,35 @@ const AddPump: React.FC = () => {
                   {/* Pump Class */}
                   <div className='space-y-2'>
                     <Label>Pump Class</Label>
-                    <Select
-                      value={pumpForm.pumpClass}
-                      onValueChange={(value) =>
-                        setPumpForm((prev) => ({ ...prev, pumpClass: value }))
+                    <MultiSelectFilter
+                      label=''
+                      options={Object.values(PUMP_CLASS_OPTIONS).flat()}
+                      selected={pumpForm.pumpClass}
+                      onSelectionChange={(selected) =>
+                        setPumpForm((prev) => ({ ...prev, pumpClass: selected }))
                       }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select pump class...' />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value='null'>None</SelectItem>
-                        {Object.entries(PUMP_CLASS_OPTIONS).map(
-                          ([group, items]) => (
-                            <SelectGroup key={group}>
-                              <SelectLabel>{group}</SelectLabel>
-                              {items.map((item) => (
-                                <SelectItem key={item} value={item}>
-                                  {item}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          )
-                        )}
-                      </SelectContent>
-                    </Select>
+                      placeholder='Select pump classes...'
+                    />
                     <p className='text-muted-foreground text-xs'>
-                        Primary pump classification category
-                      </p>
+                      Primary pump classification category
+                    </p>
                   </div>
 
                   {/* Application */}
                   <div className='space-y-2'>
-                    <Label>Application</Label>
-                    <Select
-                      value={pumpForm.application}
-                      onValueChange={(value) =>
-                        setPumpForm((prev) => ({ ...prev, application: value }))
+                    <Label htmlFor='application'>Application</Label>
+                    <MultiSelectFilter
+                      label=''
+                      options={APPLICATION_OPTIONS}
+                      selected={pumpForm.application}
+                      onSelectionChange={(selected) =>
+                        setPumpForm((prev) => ({
+                          ...prev,
+                          application: selected
+                        }))
                       }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select application...' />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value='null'>None</SelectItem>
-                        {APPLICATION_OPTIONS.map((app) => (
-                          <SelectItem key={app} value={app}>
-                            {app}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      placeholder='Select applications...'
+                    />
                   </div>
 
                   {/* Impeller Type */}
@@ -813,8 +761,8 @@ const AddPump: React.FC = () => {
                       </SelectContent>
                     </Select>
                     <p className='text-muted-foreground text-xs'>
-                        Number of motor poles (affects synchronous speed)
-                      </p>
+                      Number of motor poles (affects synchronous speed)
+                    </p>
                   </div>
 
                   {/* Other Traits */}
@@ -833,9 +781,9 @@ const AddPump: React.FC = () => {
                       placeholder='Select pump traits...'
                     />
                     <p className='text-muted-foreground text-xs'>
-                        Select all applicable traits (VFD compatible,
-                        self-priming, etc.)
-                      </p>
+                      Select all applicable traits (VFD compatible,
+                      self-priming, etc.)
+                    </p>
                   </div>
 
                   {/* Min Temperature */}
@@ -1538,13 +1486,12 @@ const AddPump: React.FC = () => {
               <Label>JSON Data</Label>
               <textarea
                 className='min-h-[300px] w-full rounded-md border p-3 font-mono text-sm'
-                placeholder={`Paste your JSON here. Example:\n${
-                  importTarget === 'pvsq' || importTarget === 'npshr'
-                    ? '[\n  { "head": 25, "flow": 100 },\n  { "head": 20, "flow": 150 }\n]'
-                    : importTarget === 'motorPower'
-                      ? '[\n  { "kw": 5.5, "flow": 100 },\n  { "kw": 7.5, "flow": 150 }\n]'
-                      : '[\n  { "eff": 75, "flow": 100 },\n  { "eff": 80, "flow": 150 }\n]'
-                }`}
+                placeholder={`Paste your JSON here. Example:\n${importTarget === 'pvsq' || importTarget === 'npshr'
+                  ? '[\n  { "head": 25, "flow": 100 },\n  { "head": 20, "flow": 150 }\n]'
+                  : importTarget === 'motorPower'
+                    ? '[\n  { "kw": 5.5, "flow": 100 },\n  { "kw": 7.5, "flow": 150 }\n]'
+                    : '[\n  { "eff": 75, "flow": 100 },\n  { "eff": 80, "flow": 150 }\n]'
+                  }`}
                 value={jsonInput}
                 onChange={(e) => setJsonInput(e.target.value)}
               />

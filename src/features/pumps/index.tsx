@@ -80,8 +80,8 @@ interface Pump {
   hz: number;
   inlet: number;
   outlet: number;
-  configuration: string;
-  type: string;
+  configuration: string[];
+  type: string[];
   voltage: number;
   amps: number;
   phases: number;
@@ -516,14 +516,34 @@ const PumpLibraryPage: React.FC = () => {
                         <TableCell>{pump.inlet}</TableCell>
                         <TableCell>{pump.outlet}</TableCell>
                         <TableCell>
-                          <Badge variant='secondary' className='text-xs'>
-                            {pump.type}
-                          </Badge>
+                          <div className='flex flex-wrap gap-1'>
+                            {Array.isArray(pump.type) ? (
+                              pump.type.map((t) => (
+                                <Badge key={t} variant='secondary' className='text-xs'>
+                                  {t}
+                                </Badge>
+                              ))
+                            ) : (
+                              <Badge variant='secondary' className='text-xs'>
+                                {pump.type}
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
-                          <Badge variant='outline' className='text-xs'>
-                            {pump.configuration}
-                          </Badge>
+                          <div className='flex flex-wrap gap-1'>
+                            {Array.isArray(pump.configuration) ? (
+                              pump.configuration.map((c) => (
+                                <Badge key={c} variant='outline' className='text-xs'>
+                                  {c}
+                                </Badge>
+                              ))
+                            ) : (
+                              <Badge variant='outline' className='text-xs'>
+                                {pump.configuration}
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         {isAdmin && (
                           <TableCell>
@@ -706,14 +726,34 @@ const PumpLibraryPage: React.FC = () => {
                         <TableCell>{pump.inlet}</TableCell>
                         <TableCell>{pump.outlet}</TableCell>
                         <TableCell>
-                          <Badge variant='secondary' className='text-xs'>
-                            {pump.type}
-                          </Badge>
+                          <div className='flex flex-wrap gap-1'>
+                            {Array.isArray(pump.type) ? (
+                              pump.type.map((t) => (
+                                <Badge key={t} variant='secondary' className='text-xs'>
+                                  {t}
+                                </Badge>
+                              ))
+                            ) : (
+                              <Badge variant='secondary' className='text-xs'>
+                                {pump.type}
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
-                          <Badge variant='outline' className='text-xs'>
-                            {pump.configuration}
-                          </Badge>
+                          <div className='flex flex-wrap gap-1'>
+                            {Array.isArray(pump.configuration) ? (
+                              pump.configuration.map((c) => (
+                                <Badge key={c} variant='outline' className='text-xs'>
+                                  {c}
+                                </Badge>
+                              ))
+                            ) : (
+                              <Badge variant='outline' className='text-xs'>
+                                {pump.configuration}
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className='flex gap-1'>

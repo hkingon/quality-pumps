@@ -113,9 +113,9 @@ export interface SavedPump {
   efficiency?: EfficiencyPoint[];
 
   brand?: string;
-  type?: string;
+  type?: string[];
   model?: string;
-  configuration?: string;
+  configuration?: string[];
   kw?: number;
   voltage?: number;
   amps?: number;
@@ -128,8 +128,8 @@ export interface SavedPump {
   rpm?: number | null;
   hz?: number | null;
 
-  pumpClass?: string;
-  application?: string;
+  pumpClass?: string[];
+  application?: string[];
   impellerType?: string;
   otherTraits?: string[];
   minTemp?: number;

@@ -82,8 +82,8 @@ interface Pump {
   kw: number;
   inlet: number;
   outlet: number;
-  configuration: string;
-  type: string;
+  configuration: string[];
+  type: string[];
   voltage: number;
   amps: number;
   phases: number;
@@ -101,8 +101,8 @@ interface Pump {
   rpm: number;
   hz: number;
 
-  pump_class?: string;
-  application?: string;
+  pump_class?: string[];
+  application?: string[];
   impeller_type?: string;
   other_traits?: string[];
   min_temp?: number | null;
@@ -116,10 +116,10 @@ interface PumpDetailViewProps {
 }
 
 
-const PumpDetailView: React.FC<PumpDetailViewProps> = ({ 
-  pumpId: propPumpId, 
-  onClose, 
-  isModal = false 
+const PumpDetailView: React.FC<PumpDetailViewProps> = ({
+  pumpId: propPumpId,
+  onClose,
+  isModal = false
 }) => {
   const [pump, setPump] = useState<Pump | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -484,13 +484,33 @@ const PumpDetailView: React.FC<PumpDetailViewProps> = ({
                       <p className='text-muted-foreground text-sm font-medium'>
                         Type
                       </p>
-                      <Badge variant='secondary'>{pump.type}</Badge>
+                      <div className='flex flex-wrap gap-1'>
+                        {Array.isArray(pump.type) ? (
+                          pump.type.map((t) => (
+                            <Badge key={t} variant='secondary'>
+                              {t}
+                            </Badge>
+                          ))
+                        ) : (
+                          <Badge variant='secondary'>{pump.type}</Badge>
+                        )}
+                      </div>
                     </div>
                     <div>
                       <p className='text-muted-foreground text-sm font-medium'>
                         Configuration
                       </p>
-                      <Badge variant='outline'>{pump.configuration}</Badge>
+                      <div className='flex flex-wrap gap-1'>
+                        {Array.isArray(pump.configuration) ? (
+                          pump.configuration.map((c) => (
+                            <Badge key={c} variant='outline'>
+                              {c}
+                            </Badge>
+                          ))
+                        ) : (
+                          <Badge variant='outline'>{pump.configuration}</Badge>
+                        )}
+                      </div>
                     </div>
                     <div>
                       <p className='text-muted-foreground text-sm font-medium'>
@@ -516,9 +536,19 @@ const PumpDetailView: React.FC<PumpDetailViewProps> = ({
                         <p className='text-muted-foreground text-sm font-medium'>
                           Pump Class
                         </p>
-                        <Badge variant='default' className='text-sm'>
-                          {pump.pump_class}
-                        </Badge>
+                        <div className='flex flex-wrap gap-1'>
+                          {Array.isArray(pump.pump_class) ? (
+                            pump.pump_class.map((pc) => (
+                              <Badge key={pc} variant='default' className='text-sm'>
+                                {pc}
+                              </Badge>
+                            ))
+                          ) : (
+                            <Badge variant='default' className='text-sm'>
+                              {pump.pump_class}
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                     )}
 
@@ -580,9 +610,19 @@ const PumpDetailView: React.FC<PumpDetailViewProps> = ({
                         <p className='text-muted-foreground text-sm font-medium'>
                           Application
                         </p>
-                        <Badge variant='secondary' className='text-sm'>
-                          {pump.application}
-                        </Badge>
+                        <div className='flex flex-wrap gap-1'>
+                          {Array.isArray(pump.application) ? (
+                            pump.application.map((app) => (
+                              <Badge key={app} variant='secondary' className='text-sm'>
+                                {app}
+                              </Badge>
+                            ))
+                          ) : (
+                            <Badge variant='secondary' className='text-sm'>
+                              {pump.application}
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                     )}
                     <div>
