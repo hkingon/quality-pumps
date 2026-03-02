@@ -34,3 +34,9 @@ create policy "Users can delete their own files" on storage.objects for DELETE u
   bucket_id = 'pump-assets'
   and auth.uid ()::text = (storage.foldername (name)) [1]
 );
+
+ALTER TABLE pumps 
+  ALTER COLUMN type TYPE text[] USING array[type],
+  ALTER COLUMN configuration TYPE text[] USING array[configuration],
+  ALTER COLUMN pump_class TYPE text[] USING array[pump_class],
+  ALTER COLUMN application TYPE text[] USING array[application];
