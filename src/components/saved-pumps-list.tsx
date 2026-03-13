@@ -39,6 +39,7 @@ interface SavedPumpsListProps {
   editPumpFromSaved: (pump: SavedPump) => void;
   headUnit: HeadUnit;
   flowUnit: FlowUnit;
+  dischargeCurveMode?: 'and' | 'or';
 }
 
 export function SavedPumpsList({
@@ -50,7 +51,8 @@ export function SavedPumpsList({
   removeSavedPump,
   editPumpFromSaved,
   headUnit,
-  flowUnit
+  flowUnit,
+  dischargeCurveMode = 'or'
 }: SavedPumpsListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [pumpsOnChart, setPumpsOnChart] = useState<string[]>([]);
@@ -263,66 +265,6 @@ export function SavedPumpsList({
         const pumpMaxFlow = convertFlow(pump.maxFlow, pump.flowUnit, flowUnit);
         const pumpMaxHead = convertHead(pump.maxHead, pump.headUnit, headUnit);
 
-        const operatingFlowInPumpUnits = convertFlow(
-          operatingFlow,
-          flowUnit,
-          pump.flowUnit
-        );
-        const operatingHeadInPumpUnits = convertHead(
-          operatingHead,
-          headUnit,
-          pump.headUnit
-        );
-
-        let canMeetDuty = false;
-
-        if (
-          operatingFlowInPumpUnits > 0 &&
-          operatingHeadInPumpUnits > 0 &&
-          operatingFlowInPumpUnits <= pump.maxFlow
-        ) {
-          if (pump.pvsq && pump.pvsq.length > 0) {
-            const sortedPoints = [...pump.pvsq].sort((a, b) => a.flow - b.flow);
-            let pumpHeadAtOperatingFlow = 0;
-            let lowerPoint = sortedPoints[0];
-            let upperPoint = sortedPoints[sortedPoints.length - 1];
-
-            for (let i = 0; i < sortedPoints.length - 1; i++) {
-              if (
-                sortedPoints[i].flow <= operatingFlowInPumpUnits &&
-                sortedPoints[i + 1].flow >= operatingFlowInPumpUnits
-              ) {
-                lowerPoint = sortedPoints[i];
-                upperPoint = sortedPoints[i + 1];
-                break;
-              }
-            }
-
-            if (lowerPoint.flow === upperPoint.flow) {
-              pumpHeadAtOperatingFlow = lowerPoint.head;
-            } else {
-              const ratio =
-                (operatingFlowInPumpUnits - lowerPoint.flow) /
-                (upperPoint.flow - lowerPoint.flow);
-              pumpHeadAtOperatingFlow =
-                lowerPoint.head + ratio * (upperPoint.head - lowerPoint.head);
-            }
-
-            const tolerance = 0.1;
-            canMeetDuty =
-              operatingHeadInPumpUnits <= pumpHeadAtOperatingFlow + tolerance;
-          } else {
-            const pumpHeadAtOperatingFlow =
-              pump.maxHead *
-              (1 - Math.pow(operatingFlowInPumpUnits / pump.maxFlow, 2));
-            const tolerance = 0.1;
-            canMeetDuty =
-              operatingHeadInPumpUnits <= pumpHeadAtOperatingFlow + tolerance;
-          }
-        } else {
-          canMeetDuty = false;
-        }
-
         let bepFlow = 0;
         let bepHead = 0;
 
@@ -354,37 +296,137 @@ export function SavedPumpsList({
         const bepFlowConverted = convertFlow(bepFlow, pump.flowUnit, flowUnit);
         const bepHeadConverted = convertHead(bepHead, pump.headUnit, headUnit);
 
-        let score = Infinity;
-        if (
-          canMeetDuty &&
-          operatingFlow > 0 &&
-          operatingHead > 0 &&
-          bepFlowConverted > 0 &&
-          bepHeadConverted > 0
-        ) {
-          const k = 1;
-          const etaDuty = 0.65;
-          const flowRatio = operatingFlow / bepFlowConverted;
-          const headRatio = operatingHead / bepHeadConverted;
+        const getDutyMetrics = (targetFlow: number, targetHead: number) => {
+          const targetFlowInPumpUnits = convertFlow(targetFlow, flowUnit, pump.flowUnit);
+          const targetHeadInPumpUnits = convertHead(targetHead, headUnit, pump.headUnit);
 
-          if (flowRatio > 0 && headRatio > 0) {
-            const flowTerm = Math.pow(Math.log(flowRatio), 2);
-            const headTerm = Math.pow(Math.log(headRatio), 2);
-            const efficiencyTerm = k * (1 - etaDuty);
-            score = Math.sqrt(flowTerm + headTerm) + efficiencyTerm;
+          let canMeet = false;
+          if (
+            targetFlowInPumpUnits > 0 &&
+            targetHeadInPumpUnits > 0 &&
+            targetFlowInPumpUnits <= pump.maxFlow
+          ) {
+            if (pump.pvsq && pump.pvsq.length > 0) {
+              const sortedPoints = [...pump.pvsq].sort((a, b) => a.flow - b.flow);
+              let pumpHeadAtOperatingFlow = 0;
+              let lowerPoint = sortedPoints[0];
+              let upperPoint = sortedPoints[sortedPoints.length - 1];
+
+              for (let i = 0; i < sortedPoints.length - 1; i++) {
+                if (
+                  sortedPoints[i].flow <= targetFlowInPumpUnits &&
+                  sortedPoints[i + 1].flow >= targetFlowInPumpUnits
+                ) {
+                  lowerPoint = sortedPoints[i];
+                  upperPoint = sortedPoints[i + 1];
+                  break;
+                }
+              }
+
+              if (lowerPoint.flow === upperPoint.flow) {
+                pumpHeadAtOperatingFlow = lowerPoint.head;
+              } else {
+                const ratio =
+                  (targetFlowInPumpUnits - lowerPoint.flow) /
+                  (upperPoint.flow - lowerPoint.flow);
+                pumpHeadAtOperatingFlow =
+                  lowerPoint.head + ratio * (upperPoint.head - lowerPoint.head);
+              }
+
+              const tolerance = 0.1;
+              canMeet = targetHeadInPumpUnits <= pumpHeadAtOperatingFlow + tolerance;
+            } else {
+              const pumpHeadAtOperatingFlow =
+                pump.maxHead * (1 - Math.pow(targetFlowInPumpUnits / pump.maxFlow, 2));
+              const tolerance = 0.1;
+              canMeet = targetHeadInPumpUnits <= pumpHeadAtOperatingFlow + tolerance;
+            }
+          }
+
+          let s = Infinity;
+          if (
+            canMeet &&
+            targetFlow > 0 &&
+            targetHead > 0 &&
+            bepFlowConverted > 0 &&
+            bepHeadConverted > 0
+          ) {
+            const k = 1;
+            const etaDuty = 0.65;
+            const flowRatio = targetFlow / bepFlowConverted;
+            const headRatio = targetHead / bepHeadConverted;
+
+            if (flowRatio > 0 && headRatio > 0) {
+              const flowTerm = Math.pow(Math.log(flowRatio), 2);
+              const headTerm = Math.pow(Math.log(headRatio), 2);
+              const efficiencyTerm = k * (1 - etaDuty);
+              s = Math.sqrt(flowTerm + headTerm) + efficiencyTerm;
+            }
+          }
+
+          const dist = Math.sqrt(
+            Math.pow(bepFlowConverted - targetFlow, 2) +
+            Math.pow(bepHeadConverted - targetHead, 2)
+          );
+
+          return { canMeet, score: s, bepDistance: dist };
+        };
+
+        const validDuties = systemCurveData.filter(d => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0);
+        
+        let overallCanMeetDuty = dischargeCurveMode === 'and' ? true : false;
+        let finalScore = Infinity;
+        let finalBepDistance = Infinity;
+
+        if (validDuties.length === 0) {
+          overallCanMeetDuty = false;
+          finalScore = Infinity;
+          finalBepDistance = 0;
+        } else {
+          if (dischargeCurveMode === 'and') {
+             let totalScore = 0;
+             let totalDistance = 0;
+             for (const duty of validDuties) {
+               const metrics = getDutyMetrics(duty.operatingFlow, duty.operatingHead);
+               overallCanMeetDuty = overallCanMeetDuty && metrics.canMeet;
+               totalScore += metrics.score;
+               totalDistance += metrics.bepDistance;
+             }
+             if (overallCanMeetDuty) {
+               finalScore = totalScore;
+               finalBepDistance = totalDistance;
+             } else {
+               finalBepDistance = totalDistance; // sum of distances still
+             }
+          } else {
+             // OR mode
+             for (const duty of validDuties) {
+               const metrics = getDutyMetrics(duty.operatingFlow, duty.operatingHead);
+               overallCanMeetDuty = overallCanMeetDuty || metrics.canMeet;
+               if (metrics.canMeet && metrics.score < finalScore) {
+                 finalScore = metrics.score;
+                 finalBepDistance = metrics.bepDistance;
+               }
+             }
+             // Fallback for distance if not meeting any
+             if (!overallCanMeetDuty) {
+               let minDistance = Infinity;
+               for (const duty of validDuties) {
+                 const metrics = getDutyMetrics(duty.operatingFlow, duty.operatingHead);
+                 if (metrics.bepDistance < minDistance) {
+                   minDistance = metrics.bepDistance;
+                 }
+               }
+               finalBepDistance = minDistance !== Infinity ? minDistance : 0;
+             }
           }
         }
 
-        const bepDistance = Math.sqrt(
-          Math.pow(bepFlowConverted - operatingFlow, 2) +
-          Math.pow(bepHeadConverted - operatingHead, 2)
-        );
-
         return {
           ...pump,
-          bepDistance,
-          canMeetDuty,
-          score,
+          bepDistance: finalBepDistance !== Infinity ? finalBepDistance : 0,
+          canMeetDuty: overallCanMeetDuty,
+          score: finalScore,
           bepFlow: bepFlowConverted,
           bepHead: bepHeadConverted,
           convertedMaxFlow: pumpMaxFlow,
@@ -403,10 +445,10 @@ export function SavedPumpsList({
     allPumps,
     searchQuery,
     filters,
-    operatingFlow,
-    operatingHead,
+    systemCurveData,
     flowUnit,
-    headUnit
+    headUnit,
+    dischargeCurveMode
   ]);
 
   const handleViewPump = (pumpId: string): void => {
@@ -614,10 +656,15 @@ export function SavedPumpsList({
       </Collapsible>
 
       {/* Operating Duty Info */}
-      {operatingFlow > 0 && operatingHead > 0 && (
+      {systemCurveData.some(d => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0) && (
         <div className='text-muted-foreground bg-muted rounded p-2 text-xs'>
-          <strong>Operating Duty:</strong> {operatingFlow.toFixed(1)} {flowUnit}{' '}
-          at {operatingHead.toFixed(1)} {headUnit}
+          <strong>Operating Duties ({dischargeCurveMode === 'and' ? 'AND Mode' : 'OR Mode'}):</strong>{' '}
+          {systemCurveData.filter(d => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0).map((d, i) => (
+            <span key={i}>
+              {i > 0 && ' | '}
+              {Number(d.operatingFlow).toFixed(1)} {flowUnit} at {Number(d.operatingHead).toFixed(1)} {headUnit}
+            </span>
+          ))}
           <br />
           <em>Pumps are sorted by suitability score (lower is better).</em>
         </div>
@@ -711,7 +758,7 @@ export function SavedPumpsList({
                       )}
                     </div>
                   </div>
-                  {operatingFlow > 0 && operatingHead > 0 && (
+                  {systemCurveData.some(d => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0) && (
                     <div className='text-muted-foreground text-xs'>
                       BEP: {pump.bepFlow.toFixed(1)} {flowUnit} at{' '}
                       {pump.bepHead.toFixed(1)} {headUnit}

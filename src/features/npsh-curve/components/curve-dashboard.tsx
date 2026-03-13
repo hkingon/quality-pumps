@@ -196,6 +196,7 @@ export function PumpCurveDashboard() {
 
   const [showDischargeSystemCurve, setShowDischargeSystemCurve] =
     useState(true);
+  const [dischargeCurveMode, setDischargeCurveMode] = useState<'and' | 'or'>('and');
   const [showSuctionCurve, setShowSuctionCurve] = useState(true);
   const [activeTab, setActiveTab] = useState('discharge');
   const [numberOfDutyPumps, setNumberOfDutyPumps] = useState(1);
@@ -1640,16 +1641,26 @@ export function PumpCurveDashboard() {
                   <h2 className='mb-2 text-xl font-semibold'>
                     Discharge System Curve Parameters
                   </h2>
-                  <Button
-                    className='cursor-pointer'
-                    variant='outline'
-                    onClick={() =>
-                      setShowDischargeSystemCurve(!showDischargeSystemCurve)
-                    }
-                  >
-                    {showDischargeSystemCurve ? 'Hide' : 'Show'} Discharge
-                    System Curves
-                  </Button>
+                  <div className='flex gap-2'>
+                    <Button
+                      className='cursor-pointer'
+                      variant='outline'
+                      onClick={() =>
+                        setShowDischargeSystemCurve(!showDischargeSystemCurve)
+                      }
+                    >
+                      {showDischargeSystemCurve ? 'Hide' : 'Show'} Discharge System Curves
+                    </Button>
+                    <Button
+                      className='cursor-pointer'
+                      variant='outline'
+                      onClick={() =>
+                        setDischargeCurveMode(prev => prev === 'and' ? 'or' : 'and')
+                      }
+                    >
+                      Mode: {dischargeCurveMode.toUpperCase()}
+                    </Button>
+                  </div>
                 </div>
                 {showDischargeSystemCurve &&
                   dischargeSystemCurveData.map((system, index) => (
@@ -1911,6 +1922,7 @@ export function PumpCurveDashboard() {
             editPumpFromSaved={editPumpFromSaved}
             headUnit={headUnit}
             flowUnit={flowUnit}
+            dischargeCurveMode={dischargeCurveMode}
           />
         </Card>
       </div>

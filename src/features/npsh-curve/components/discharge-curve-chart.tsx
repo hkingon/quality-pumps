@@ -406,10 +406,40 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
         borderColor: dischargeColors[index % dischargeColors.length],
         backgroundColor: dischargeColors[index % dischargeColors.length],
         pointRadius: 8,
-        // pointStyle: 'triangle',
         pointStyle: () =>
           createChevronArrow(dischargeColors[index % dischargeColors.length]),
-        // pointRotation: 90,
+        rotation: (context: any) => {
+          const chart = context.chart;
+          if (!chart) return 0;
+          const xAxis = chart.scales.x;
+          const yAxis = chart.scales.y;
+          if (!xAxis || !yAxis) return 0;
+
+          const points = dischargeSystemCurvePoints[index];
+          if (!points || points.length < 2) return 0;
+
+          const Qd = system.operatingFlow || 0;
+          let p1 = points[Math.max(0, points.length - 2)];
+          let p2 = points[points.length - 1];
+          for (let i = 0; i < points.length - 1; i++) {
+            if (points[i].flow <= Qd && points[i+1].flow >= Qd) {
+              p1 = points[i];
+              p2 = points[i+1];
+              break;
+            }
+          }
+          if (p1.flow === p2.flow) return 0;
+
+          const x0 = xAxis.getPixelForValue(p1.flow);
+          const x1 = xAxis.getPixelForValue(p2.flow);
+          const y0 = yAxis.getPixelForValue(p1.head);
+          const y1 = yAxis.getPixelForValue(p2.head);
+
+          const dx = x1 - x0;
+          const dy = y1 - y0;
+
+          return Math.atan2(dy, dx) * (180 / Math.PI);
+        },
         type: 'scatter',
         showLine: false,
         yAxisID: 'y'

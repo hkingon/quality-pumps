@@ -36,32 +36,44 @@ export function MotorSpeedControl({
   onSpeedChange,
   onEnabledChange
 }: MotorSpeedControlProps) {
-  const [localRpm, setLocalRpm] = useState(currentRpm);
-  const [localHz, setLocalHz] = useState(currentHz);
+  const [localRpm, setLocalRpm] = useState(currentRpm.toFixed(0));
+  const [localHz, setLocalHz] = useState(currentHz.toFixed(1));
 
   useEffect(() => {
-    setLocalRpm(currentRpm);
-    setLocalHz(currentHz);
+    setLocalRpm(currentRpm.toFixed(0));
+    setLocalHz(currentHz.toFixed(1));
   }, [currentRpm, currentHz]);
 
-  const handleRpmChange = (value: string) => {
-    const rpm = parseFloat(value) || baseRpm;
+  const commitRpmChange = (value: string) => {
+    let rpm = parseFloat(value);
+    if (isNaN(rpm)) {
+      setLocalRpm(currentRpm.toFixed(0));
+      return;
+    }
     const clampedRpm = Math.max(baseRpm * 0.3, Math.min(baseRpm * 1.2, rpm)); // 30% to 120% of base
     const calculatedHz = (clampedRpm / baseRpm) * baseHz;
 
-    setLocalRpm(clampedRpm);
-    setLocalHz(calculatedHz);
-    onSpeedChange(pumpId, clampedRpm, calculatedHz);
+    setLocalRpm(clampedRpm.toFixed(0));
+    setLocalHz(calculatedHz.toFixed(1));
+    if (clampedRpm !== currentRpm) {
+      onSpeedChange(pumpId, clampedRpm, calculatedHz);
+    }
   };
 
-  const handleHzChange = (value: string) => {
-    const hz = parseFloat(value) || baseHz;
+  const commitHzChange = (value: string) => {
+    let hz = parseFloat(value);
+    if (isNaN(hz)) {
+      setLocalHz(currentHz.toFixed(1));
+      return;
+    }
     const clampedHz = Math.max(baseHz * 0.3, Math.min(baseHz * 1.2, hz)); // 30% to 120% of base
     const calculatedRpm = (clampedHz / baseHz) * baseRpm;
 
-    setLocalHz(clampedHz);
-    setLocalRpm(calculatedRpm);
-    onSpeedChange(pumpId, calculatedRpm, clampedHz);
+    setLocalHz(clampedHz.toFixed(1));
+    setLocalRpm(calculatedRpm.toFixed(0));
+    if (clampedHz !== currentHz) {
+      onSpeedChange(pumpId, calculatedRpm, clampedHz);
+    }
   };
 
   const speedRatio = currentRpm / baseRpm;
@@ -116,8 +128,12 @@ export function MotorSpeedControl({
               <Input
                 id={`rpm-${pumpId}`}
                 type='number'
-                value={localRpm.toFixed(0)}
-                onChange={(e) => handleRpmChange(e.target.value)}
+                value={localRpm}
+                onChange={(e) => setLocalRpm(e.target.value)}
+                onBlur={(e) => commitRpmChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitRpmChange(e.currentTarget.value);
+                }}
                 min={baseRpm * 0.3}
                 max={baseRpm * 1.2}
                 step={10}
@@ -139,8 +155,12 @@ export function MotorSpeedControl({
               <Input
                 id={`hz-${pumpId}`}
                 type='number'
-                value={localHz.toFixed(1)}
-                onChange={(e) => handleHzChange(e.target.value)}
+                value={localHz}
+                onChange={(e) => setLocalHz(e.target.value)}
+                onBlur={(e) => commitHzChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitHzChange(e.currentTarget.value);
+                }}
                 min={baseHz * 0.3}
                 max={baseHz * 1.2}
                 step={0.1}
