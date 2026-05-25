@@ -51,7 +51,13 @@ export const navItems: NavItem[] = [
         url: '/dashboard/rain-water-run-off-advanced',
         icon: 'rwroa',
         shortcut: ['r', 'a']
-      }
+      },
+      {
+        title: 'Pipework Library',
+        url: '/dashboard/pipes',
+        icon: 'pipe',
+        shortcut: ['p', 'w']
+      },
     ]
   }
 ];

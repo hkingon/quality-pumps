@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { PipeInputs } from './PipeInputs';
 import { FrictionResults } from './FrictionResults';
 import { PipeSelector } from './PipeSelector';
-import { pipeLookup, PipeType } from './lookupTables';
+import { usePipeLibrary } from '../hooks/usePipeLibrary';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -31,6 +31,9 @@ function mapHeadUnitToInternal(
 export default function FrictionLossPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const { pipeTypes, getSizesForType, getPipeData, loading: pipesLoading } = usePipeLibrary();
+
   const [flowRate, setFlowRate] = useState(() =>
     parseFloat(searchParams.get('flowRate') || '0')
   );
@@ -46,23 +49,42 @@ export default function FrictionLossPage() {
     parseFloat(searchParams.get('staticHead') || '0')
   );
   const [nominalBore, setNominalBore] = useState(
-    () => searchParams.get('nominalBore') || '40'
+    () => searchParams.get('nominalBore') || ''
   );
-  const [pipeType, setPipeType] = useState<PipeType>(
-    () => (searchParams.get('pipeType') as PipeType) || 'PE_PN12@5'
+  const [pipeTypeId, setPipeTypeId] = useState<string>(
+    () => searchParams.get('pipeType') || ''
   );
   const [headUnit, setHeadUnit] = useState<'m/Head' | 'Bar' | 'kPa'>(
     () => (searchParams.get('headUnit') as 'm/Head' | 'Bar' | 'kPa') || 'm/Head'
   );
   const [isDischargeMode, setIsDischargeMode] = useState(true);
+
+  const currentSizes = useMemo(() => getSizesForType(pipeTypeId), [getSizesForType, pipeTypeId]);
+
+  useEffect(() => {
+    // Once pipe types load, set a default if none is selected
+    if (!pipeTypeId && pipeTypes.length > 0 && !pipesLoading) {
+      setPipeTypeId(pipeTypes[0].id);
+    }
+  }, [pipeTypes, pipeTypeId, pipesLoading]);
+
+  useEffect(() => {
+    // Reset nominal bore when type changes
+    if (currentSizes.length > 0) {
+      const exists = currentSizes.some((s) => s.nominal_size === nominalBore);
+      if (!exists) {
+        setNominalBore(currentSizes[0]?.nominal_size || '');
+      }
+    }
+  }, [currentSizes]);
   useEffect(() => {
     const params = new URLSearchParams();
     if (flowRate > 0) params.set('flowRate', flowRate.toString());
     if (flowRateUnit !== 'L/sec') params.set('flowRateUnit', flowRateUnit);
     if (pipeLength > 0) params.set('pipeLength', pipeLength.toString());
     if (!isNaN(staticHead)) params.set('staticHead', staticHead.toString());
-    if (nominalBore !== '40') params.set('nominalBore', nominalBore);
-    if (pipeType !== 'PE_PN12@5') params.set('pipeType', pipeType);
+    if (nominalBore) params.set('nominalBore', nominalBore);
+    if (pipeTypeId) params.set('pipeType', pipeTypeId);
     if (headUnit !== 'm/Head') params.set('headUnit', headUnit);
     const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
     window.history.replaceState(null, '', newUrl);
@@ -72,13 +94,13 @@ export default function FrictionLossPage() {
     pipeLength,
     staticHead,
     nominalBore,
-    pipeType,
+    pipeTypeId,
     headUnit
   ]);
   const { id, c } = useMemo(() => {
-    const data = pipeLookup[pipeType]?.[nominalBore];
-    return data || { id: 160, c: 150 }; // Adjusted c to 150 for PE PN12.5
-  }, [nominalBore, pipeType]);
+    if (!pipeTypeId || !nominalBore) return { id: 160, c: 150 };
+    return getPipeData(pipeTypeId, nominalBore);
+  }, [nominalBore, pipeTypeId, getPipeData]);
   function convertHead(
     value: number,
     fromUnit: 'm/Head' | 'Bar' | 'kPa',
@@ -246,10 +268,13 @@ export default function FrictionLossPage() {
     <div className='mb-4 flex w-full flex-col items-center gap-6 lg:flex-col'>
       <div className='w-full space-y-4 lg:w-1/2'>
         <PipeSelector
-          pipeType={pipeType}
-          setPipeType={setPipeType}
-          nominalBore={nominalBore}
-          setNominalBore={setNominalBore}
+          pipeTypes={pipeTypes}
+          loading={pipesLoading}
+          pipeTypeId={pipeTypeId}
+          setPipeTypeId={setPipeTypeId}
+          nominalSize={nominalBore}
+          setNominalSize={setNominalBore}
+          sizes={currentSizes}
         />
         <div className='flex flex-wrap items-center gap-4'>
           <div className='flex items-center gap-2'>

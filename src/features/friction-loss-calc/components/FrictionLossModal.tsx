@@ -1,17 +1,16 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { PipeInputs } from './PipeInputs';
 import { FrictionResults } from './FrictionResults';
 import { PipeSelector } from './PipeSelector';
-import { pipeLookup, PipeType } from './lookupTables';
+import { usePipeLibrary } from '../hooks/usePipeLibrary';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
     DialogContent,
     DialogHeader,
     DialogTitle,
-    DialogFooter
 } from '@/components/ui/dialog';
 import {
     Select,
@@ -46,14 +45,15 @@ export function FrictionLossModal({
     onGlobalFlowUnitChange,
     onGlobalHeadUnitChange
 }: FrictionLossModalProps) {
-    // State initialization matching FrictionLossPage but with prop defaults
-    const [flowRate, setFlowRate] = useState(initialData?.operatingFlow || 0);
+    const { pipeTypes, getSizesForType, getPipeData } = usePipeLibrary();
 
-    // Initialize persisted inputs if available
+    const [flowRate, setFlowRate] = useState(initialData?.operatingFlow || 0);
     const [pipeLength, setPipeLength] = useState(initialData?.length || 0);
     const [staticHead, setStaticHead] = useState(initialData?.staticHead || 0);
-    const [nominalBore, setNominalBore] = useState(initialData?.nominalSize || '40');
-    const [pipeType, setPipeType] = useState<PipeType>((initialData?.material as PipeType) || 'PE_PN12@5');
+    const [nominalBore, setNominalBore] = useState(initialData?.nominalSize || '');
+    const [pipeTypeId, setPipeTypeId] = useState<string>((initialData?.material as string) || (pipeTypes[0]?.id ?? ''));
+
+    const currentSizes = useMemo(() => getSizesForType(pipeTypeId), [getSizesForType, pipeTypeId]);
 
     // If we are editing, we might want to try to reverse calc or just start fresh?
     // The requirement says "Adding or editing a curve brings up a 'floating' view of the Friction Loss calculator where the user can edit the Pipe Type, Nominal Bore, Flow Rate, Pipe Length, Static Head and save it to the curve."
@@ -65,9 +65,9 @@ export function FrictionLossModal({
     // Actually, I'll assume users re-enter or I'll just use the basic values I have.
 
     const { id, c } = useMemo(() => {
-        const data = pipeLookup[pipeType]?.[nominalBore];
-        return data || { id: 160, c: 150 };
-    }, [nominalBore, pipeType]);
+        if (!pipeTypeId || !nominalBore) return { id: 160, c: 150 };
+        return getPipeData(pipeTypeId, nominalBore);
+    }, [nominalBore, pipeTypeId, getPipeData]);
 
     const standardizedFlowRate = useMemo(() => {
         switch (globalFlowUnit) {
@@ -165,7 +165,7 @@ export function FrictionLossModal({
             length: pipeLength,
             diameter: id,
             nominalSize: nominalBore,
-            material: pipeType,
+            material: pipeTypeId,
             cValue: c
         };
 
@@ -220,10 +220,16 @@ export function FrictionLossModal({
                     {/* Inputs Column */}
                     <div className='w-full space-y-4 lg:w-1/2'>
                         <PipeSelector
-                            pipeType={pipeType}
-                            setPipeType={setPipeType}
-                            nominalBore={nominalBore}
-                            setNominalBore={setNominalBore}
+                            pipeTypes={pipeTypes}
+                            loading={false}
+                            pipeTypeId={pipeTypeId}
+                            setPipeTypeId={(val) => {
+                                setPipeTypeId(val);
+                                setNominalBore('');
+                            }}
+                            nominalSize={nominalBore}
+                            setNominalSize={setNominalBore}
+                            sizes={currentSizes}
                         />
 
                         <div className='flex flex-wrap items-center gap-4'>
