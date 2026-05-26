@@ -33,20 +33,8 @@ create policy "Anyone can view pipe types"
 create policy "Admins can manage pipe types"
   on pipe_types for all
   to authenticated
-  using (
-    exists (
-      select 1 from auth.users
-      where auth.users.id = auth.uid()
-        and auth.users.raw_user_meta_data->>'role' = 'admin'
-    )
-  )
-  with check (
-    exists (
-      select 1 from auth.users
-      where auth.users.id = auth.uid()
-        and auth.users.raw_user_meta_data->>'role' = 'admin'
-    )
-  );
+  using (auth.jwt() -> 'user_metadata' ->> 'role' = 'admin')
+  with check (auth.jwt() -> 'user_metadata' ->> 'role' = 'admin');
 
 -- RLS Policies: pipe_sizes
 alter table pipe_sizes enable row level security;
@@ -59,20 +47,8 @@ create policy "Anyone can view pipe sizes"
 create policy "Admins can manage pipe sizes"
   on pipe_sizes for all
   to authenticated
-  using (
-    exists (
-      select 1 from auth.users
-      where auth.users.id = auth.uid()
-        and auth.users.raw_user_meta_data->>'role' = 'admin'
-    )
-  )
-  with check (
-    exists (
-      select 1 from auth.users
-      where auth.users.id = auth.uid()
-        and auth.users.raw_user_meta_data->>'role' = 'admin'
-    )
-  );
+  using (auth.jwt() -> 'user_metadata' ->> 'role' = 'admin')
+  with check (auth.jwt() -> 'user_metadata' ->> 'role' = 'admin');
 
 -- Indexes
 create index idx_pipe_sizes_type on pipe_sizes(pipe_type_id);

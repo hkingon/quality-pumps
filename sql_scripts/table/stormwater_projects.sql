@@ -12,6 +12,10 @@ create table if not exists stormwater_projects (
   detention_volume numeric not null default 0,
   storm_duration integer not null default 60,
   -- minutes
+  max_duration integer not null default 360,
+  -- minutes (default 6 hours)
+  max_duration_unit text not null default 'hr',
+  -- 'min' | 'hr'
   csv_data jsonb,
   -- IFD data
   rainfall_event text,
