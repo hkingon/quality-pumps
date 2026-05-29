@@ -376,7 +376,7 @@ export default function AdvancedStormwaterCalculator() {
     let peakFlow = 0;
     for (const c of catchments) {
       if (!c.area || !c.coefficient || !c.toc) continue;
-      const I = interpolateIntensity(duration, aep);
+      const I = interpolateIntensity(duration, c.aep);
       if (!I) continue;
       peakFlow += (c.coefficient * I * c.area) / 3_600_000;
     }
@@ -1175,12 +1175,12 @@ export default function AdvancedStormwaterCalculator() {
               </div>
               <div className='mt-4 grid grid-cols-2 gap-4 text-sm'>
                 <div className='rounded bg-muted p-3'>
-                  <p className='text-muted-foreground'>Peak Flow (worst case)</p>
+                  <p className='text-muted-foreground'>Peak Flow (max)</p>
                   <p className='text-lg font-bold'>
                     {(() => {
-                      const worst = allResults.find((r) => r.duration === worstDuration);
-                      if (worst) {
-                        return `${convertFlow(worst.peakFlow, 'm3/s', flowUnit).toFixed(4)} ${flowUnitLabel(flowUnit)}`;
+                      if (allResults.length > 0) {
+                        const maxPeak = Math.max(...allResults.map((r) => r.peakFlow));
+                        return `${convertFlow(maxPeak, 'm3/s', flowUnit).toFixed(4)} ${flowUnitLabel(flowUnit)}`;
                       }
                       return '- ';
                     })()}
