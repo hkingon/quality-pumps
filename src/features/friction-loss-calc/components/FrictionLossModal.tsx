@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { PipeInputs } from './PipeInputs';
 import { FrictionResults } from './FrictionResults';
 import { PipeSelector } from './PipeSelector';
@@ -52,6 +52,17 @@ export function FrictionLossModal({
     const [staticHead, setStaticHead] = useState(initialData?.staticHead || 0);
     const [nominalBore, setNominalBore] = useState(initialData?.nominalSize || '');
     const [pipeTypeId, setPipeTypeId] = useState<string>((initialData?.material as string) || (pipeTypes[0]?.id ?? ''));
+
+    // Re-sync local form state whenever the modal switches to a different component.
+    // Without this, the internal state from the previous add/edit persists across
+    // clicks because the component itself never re-mounts (it is controlled by isOpen).
+    useEffect(() => {
+        setFlowRate(initialData?.operatingFlow ?? 0);
+        setPipeLength(initialData?.length ?? 0);
+        setStaticHead(initialData?.staticHead ?? 0);
+        setNominalBore(initialData?.nominalSize ?? '');
+        setPipeTypeId((initialData?.material as string) || (pipeTypes[0]?.id ?? ''));
+    }, [initialData, pipeTypes]);
 
     const currentSizes = useMemo(() => getSizesForType(pipeTypeId), [getSizesForType, pipeTypeId]);
 
