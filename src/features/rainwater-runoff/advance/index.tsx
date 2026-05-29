@@ -369,7 +369,8 @@ export default function AdvancedStormwaterCalculator() {
   /* ---------- Build Triangle for One Duration ---------- */
   const buildTriangle = (duration: number, aep: string): HydroPoint[] => {
     const points: HydroPoint[] = [];
-    const maxTc = Math.max(...catchments.map((c) => c.toc || 0));
+    const maxTcRaw = Math.max(...catchments.map((c) => c.toc || 0));
+    const maxTc = Math.max(1, Math.round(maxTcRaw));
 
     // Calculate combined peak flow at 'duration' (td) using log-log interpolated intensity
     let peakFlow = 0;
@@ -413,10 +414,23 @@ export default function AdvancedStormwaterCalculator() {
     const flowRateM3s = convertFlow(flowRateRef.current, flowUnitRef.current, 'm3/s');
     const maxDurationMin = convertTime(maxDuration, maxDurationUnit, 'min');
 
-    // Create lines at 6-minute intervals up to maxDurationMin
+    const maxTcRaw = Math.max(...catchments.map((c) => c.toc || 0));
+    const maxTc = Math.max(1, Math.round(maxTcRaw));
+
+    // Create storm durations at 6-minute intervals starting at maxTc
     const targetDurations: number[] = [];
-    for (let d = 6; d <= maxDurationMin; d += 6) {
-      targetDurations.push(d);
+    if (maxTc <= 6) {
+      for (let d = 6; d <= maxDurationMin; d += 6) {
+        targetDurations.push(d);
+      }
+    } else {
+      // First event is at maxTc
+      targetDurations.push(maxTc);
+      // Subsequent events are at multiples of 6 greater than maxTc
+      const nextMultipleOf6 = Math.ceil((maxTc + 0.0001) / 6) * 6;
+      for (let d = nextMultipleOf6; d <= maxDurationMin; d += 6) {
+        targetDurations.push(d);
+      }
     }
 
     if (targetDurations.length === 0) {
