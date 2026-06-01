@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/contexts/auth-context';
+import { sortPipeSizesByNominal } from '@/lib/pipe-sort';
 import { toast } from 'sonner';
 
 interface PipeType {
@@ -84,7 +85,9 @@ export default function PipeLibraryPage() {
 
       const combined = (types || []).map((t) => ({
         ...t,
-        sizes: (sizes || []).filter((s) => s.pipe_type_id === t.id)
+        sizes: sortPipeSizesByNominal(
+          (sizes || []).filter((s) => s.pipe_type_id === t.id)
+        )
       }));
       setPipeTypes(combined);
     } catch (err) {

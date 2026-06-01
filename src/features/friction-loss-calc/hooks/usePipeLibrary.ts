@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { toast } from 'sonner';
+import { sortPipeSizesByNominal } from '@/lib/pipe-sort';
 
 export interface PipeTypeOption {
   id: string;
@@ -43,7 +44,7 @@ export function usePipeLibrary() {
       if (sizeErr) throw sizeErr;
 
       setPipeTypes(types || []);
-      setPipeSizes(sizes || []);
+      setPipeSizes(sortPipeSizesByNominal(sizes || []));
     } catch {
       toast.error('Failed to load pipe library');
     } finally {
