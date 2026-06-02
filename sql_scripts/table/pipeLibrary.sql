@@ -30,7 +30,28 @@ create policy "Anyone can view pipe types"
   to authenticated, anon
   using (true);
 
-create policy "Admins can manage pipe types"
+create policy "Users can view global and their own pipe types"
+  on pipe_types for select
+  to authenticated
+  using (created_by is null or created_by = auth.uid());
+
+create policy "Users can create their own pipe types"
+  on pipe_types for insert
+  to authenticated
+  with check (auth.uid() = created_by);
+
+create policy "Users can update their own pipe types"
+  on pipe_types for update
+  to authenticated
+  using (created_by = auth.uid())
+  with check (created_by = auth.uid());
+
+create policy "Users can delete their own pipe types"
+  on pipe_types for delete
+  to authenticated
+  using (created_by = auth.uid());
+
+create policy "Admins can manage all pipe types"
   on pipe_types for all
   to authenticated
   using (auth.jwt() -> 'user_metadata' ->> 'role' = 'admin')
@@ -44,7 +65,34 @@ create policy "Anyone can view pipe sizes"
   to authenticated, anon
   using (true);
 
-create policy "Admins can manage pipe sizes"
+create policy "Users can view global and their own pipe sizes"
+  on pipe_sizes for select
+  to authenticated
+  using (created_by is null or created_by = auth.uid());
+
+create policy "Users can create their own pipe sizes"
+  on pipe_sizes for insert
+  to authenticated
+  with check (
+    auth.uid() = created_by
+    and exists (
+      select 1 from pipe_types pt
+      where pt.id = pipe_type_id and pt.created_by = auth.uid()
+    )
+  );
+
+create policy "Users can update their own pipe sizes"
+  on pipe_sizes for update
+  to authenticated
+  using (created_by = auth.uid())
+  with check (created_by = auth.uid());
+
+create policy "Users can delete their own pipe sizes"
+  on pipe_sizes for delete
+  to authenticated
+  using (created_by = auth.uid());
+
+create policy "Admins can manage all pipe sizes"
   on pipe_sizes for all
   to authenticated
   using (auth.jwt() -> 'user_metadata' ->> 'role' = 'admin')

@@ -4,9 +4,9 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-  Card, CardContent, CardHeader, CardTitle, CardDescription
+  Card, CardContent, CardHeader, CardTitle
 } from '@/components/ui/card';
-import { X, Plus, Loader2, Trash2, Edit2, Save, Shield } from 'lucide-react';
+import { X, Plus, Loader2, Trash2, Edit2, Save, Shield, Globe, User } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase/client';
 import { toast } from 'sonner';
@@ -48,8 +48,8 @@ export default function ManagePipeTypes() {
   const isAdmin = user?.user_metadata?.role === 'admin';
 
   useEffect(() => {
-    if (isAdmin) fetchPipeTypes();
-  }, [isAdmin]);
+    if (user) fetchPipeTypes();
+  }, [user]);
 
   const fetchPipeTypes = async () => {
     try {
@@ -66,6 +66,11 @@ export default function ManagePipeTypes() {
       setLoading(false);
     }
   };
+
+  const canManageType = (pt: PipeType) => isAdmin || pt.created_by === user?.id;
+
+  const globalTypes = pipeTypes.filter((pt) => !pt.created_by);
+  const myTypes = pipeTypes.filter((pt) => pt.created_by === user?.id);
 
   const handleAdd = async () => {
     if (!newName.trim()) {
@@ -164,14 +169,11 @@ export default function ManagePipeTypes() {
     setEditStandard('');
   };
 
-  if (!isAdmin) {
+  if (!user) {
     return (
       <div className='container mx-auto p-6'>
-        <Alert variant='destructive'>
-          <Shield className='h-4 w-4' />
-          <AlertDescription>
-            Access Denied. This page is only accessible to administrators.
-          </AlertDescription>
+        <Alert>
+          <AlertDescription>Please log in to manage pipe types.</AlertDescription>
         </Alert>
       </div>
     );
@@ -193,7 +195,11 @@ export default function ManagePipeTypes() {
             <Shield className='h-8 w-8' />
             Manage Pipe Types
           </h1>
-          <p className='text-muted-foreground mt-1'>Add, edit, or remove pipe material types and standards.</p>
+          <p className='text-muted-foreground mt-1'>
+            {isAdmin
+              ? 'Add, edit, or remove pipe material types and standards for all users.'
+              : 'Create your own custom pipe types and manage global types.'}
+          </p>
         </div>
         <Button onClick={() => setShowAddDialog(true)}>
           <Plus className='mr-2 h-4 w-4' />
@@ -201,95 +207,42 @@ export default function ManagePipeTypes() {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>All Types ({pipeTypes.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {pipeTypes.length === 0 ? (
-            <div className='text-muted-foreground py-12 text-center'>
-              No pipe types found. Click &quot;Add Pipe Type&quot; to create one.
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Standard</TableHead>
-                  <TableHead className='text-right'>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pipeTypes.map((pt) => (
-                  <TableRow key={pt.id}>
-                    <TableCell className='font-medium'>
-                      {editingId === pt.id ? (
-                        <Input value={editName} onChange={(e) => setEditName(e.target.value)} className='max-w-[200px]' autoFocus />
-                      ) : (
-                        pt.name
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {editingId === pt.id ? (
-                        <Input value={editDesc} onChange={(e) => setEditDesc(e.target.value)} className='max-w-[300px]' />
-                      ) : (
-                        pt.description || '-'
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {editingId === pt.id ? (
-                        <Input value={editStandard} onChange={(e) => setEditStandard(e.target.value)} className='max-w-[200px]' />
-                      ) : (
-                        pt.standard || '-'
-                      )}
-                    </TableCell>
-                    <TableCell className='text-right'>
-                      <div className='flex justify-end gap-2'>
-                        {editingId === pt.id ? (
-                          <>
-                            <Button size='sm' onClick={() => handleUpdate(pt.id)} disabled={saving}>
-                              {saving ? <Loader2 className='h-4 w-4 animate-spin' /> : <Save className='h-4 w-4' />}
-                            </Button>
-                            <Button size='sm' variant='outline' onClick={cancelEdit} disabled={saving}>
-                              <X className='h-4 w-4' />
-                            </Button>
-                          </>
-                        ) : (
-                          <>
-                            <Button size='sm' variant='ghost' onClick={() => startEdit(pt)}>
-                              <Edit2 className='h-4 w-4' />
-                            </Button>
-                            <Button
-                              size='sm'
-                              variant='ghost'
-                              onClick={() => handleDelete(pt.id, pt.name)}
-                              disabled={deleting === pt.id}
-                            >
-                              {deleting === pt.id ? (
-                                <Loader2 className='h-4 w-4 animate-spin' />
-                              ) : (
-                                <Trash2 className='h-4 w-4 text-red-500' />
-                              )}
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      {isAdmin ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>All Types ({pipeTypes.length})</CardTitle>
+          </CardHeader>
+          <CardContent>{renderTypeTable(pipeTypes, true)}</CardContent>
+        </Card>
+      ) : (
+        <>
+          <Card>
+            <CardHeader className='flex flex-row items-center gap-2'>
+              <Globe className='h-5 w-5 text-muted-foreground' />
+              <CardTitle>Global Types ({globalTypes.length})</CardTitle>
+              <p className='text-muted-foreground ml-auto text-sm'>Shared by all users — read only</p>
+            </CardHeader>
+            <CardContent>{renderTypeTable(globalTypes, false)}</CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className='flex flex-row items-center gap-2'>
+              <User className='h-5 w-5 text-muted-foreground' />
+              <CardTitle>My Custom Types ({myTypes.length})</CardTitle>
+            </CardHeader>
+            <CardContent>{renderTypeTable(myTypes, true)}</CardContent>
+          </Card>
+        </>
+      )}
 
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add New Pipe Type</DialogTitle>
             <DialogDescription>
-              Create a new pipe material / standard category that will be available to all users.
+              {isAdmin
+                ? 'Create a new pipe material / standard category that will be available to all users.'
+                : 'Create a custom pipe material / standard category private to you.'}
             </DialogDescription>
           </DialogHeader>
           <div className='space-y-4 py-4'>
@@ -316,4 +269,91 @@ export default function ManagePipeTypes() {
       </Dialog>
     </div>
   );
+
+  function renderTypeTable(types: PipeType[], allowActions: boolean) {
+    if (types.length === 0) {
+      return (
+        <div className='text-muted-foreground py-12 text-center'>
+          No pipe types found. Click &quot;Add Pipe Type&quot; to create one.
+        </div>
+      );
+    }
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Description</TableHead>
+            <TableHead>Standard</TableHead>
+            {allowActions && <TableHead className='text-right'>Actions</TableHead>}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {types.map((pt) => (
+            <TableRow key={pt.id}>
+              <TableCell className='font-medium'>
+                {editingId === pt.id ? (
+                  <Input value={editName} onChange={(e) => setEditName(e.target.value)} className='max-w-[200px]' autoFocus />
+                ) : (
+                  <span className='flex items-center gap-2'>
+                    {pt.name}
+                    {isAdmin && pt.created_by && <span className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs'>Custom</span>}
+                    {isAdmin && !pt.created_by && <span className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs'>Global</span>}
+                  </span>
+                )}
+              </TableCell>
+              <TableCell>
+                {editingId === pt.id ? (
+                  <Input value={editDesc} onChange={(e) => setEditDesc(e.target.value)} className='max-w-[300px]' />
+                ) : (
+                  pt.description || '-'
+                )}
+              </TableCell>
+              <TableCell>
+                {editingId === pt.id ? (
+                  <Input value={editStandard} onChange={(e) => setEditStandard(e.target.value)} className='max-w-[200px]' />
+                ) : (
+                  pt.standard || '-'
+                )}
+              </TableCell>
+              {allowActions && canManageType(pt) && (
+                <TableCell className='text-right'>
+                  <div className='flex justify-end gap-2'>
+                    {editingId === pt.id ? (
+                      <>
+                        <Button size='sm' onClick={() => handleUpdate(pt.id)} disabled={saving}>
+                          {saving ? <Loader2 className='h-4 w-4 animate-spin' /> : <Save className='h-4 w-4' />}
+                        </Button>
+                        <Button size='sm' variant='outline' onClick={cancelEdit} disabled={saving}>
+                          <X className='h-4 w-4' />
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button size='sm' variant='ghost' onClick={() => startEdit(pt)}>
+                          <Edit2 className='h-4 w-4' />
+                        </Button>
+                        <Button
+                          size='sm'
+                          variant='ghost'
+                          onClick={() => handleDelete(pt.id, pt.name)}
+                          disabled={deleting === pt.id}
+                        >
+                          {deleting === pt.id ? (
+                            <Loader2 className='h-4 w-4 animate-spin' />
+                          ) : (
+                            <Trash2 className='h-4 w-4 text-red-500' />
+                          )}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </TableCell>
+              )}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  }
 }

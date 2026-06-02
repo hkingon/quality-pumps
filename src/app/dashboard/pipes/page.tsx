@@ -14,7 +14,7 @@ export default async function Page() {
       <div className="flex flex-1 flex-col space-y-6">
         <Heading
           title="Pipework Library"
-          description="Browse pipe sizes by material and standard. Admin users can add and edit pipe sizes for all users."
+                    description="Browse global pipe sizes, or create and manage your own custom pipe types and sizes."
         />
         <Separator />
         <Suspense fallback={<div className="text-sm text-muted-foreground">Loading pipe library...</div>}>

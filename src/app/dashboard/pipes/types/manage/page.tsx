@@ -14,7 +14,7 @@ export default async function Page() {
       <div className="flex flex-1 flex-col space-y-6">
         <Heading
           title="Manage Pipe Types"
-          description="Admin-only page to add, edit, or remove pipe material types and standards."
+                    description="Add, edit, or remove pipe material types. Global types are shared; custom types are private to you."
         />
         <Separator />
         <Suspense fallback={<div className="text-sm text-muted-foreground">Loading...</div>}>

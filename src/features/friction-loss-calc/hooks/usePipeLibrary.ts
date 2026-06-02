@@ -8,6 +8,7 @@ export interface PipeTypeOption {
   name: string;
   description: string | null;
   standard: string | null;
+  created_by: string | null;
 }
 
 export interface PipeSizeOption {
@@ -33,7 +34,7 @@ export function usePipeLibrary() {
     try {
       const { data: types, error: typeErr } = await supabase
         .from('pipe_types')
-        .select('id, name, description, standard')
+        .select('id, name, description, standard, created_by')
         .order('name', { ascending: true });
       if (typeErr) throw typeErr;
 
