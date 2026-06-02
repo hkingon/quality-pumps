@@ -13,7 +13,7 @@ import {
   Legend,
   ChartOptions
 } from 'chart.js';
-import { HydrographDataPoint } from './index';
+import { HyetographDataPoint } from './index';
 import {
   Table,
   TableBody,
@@ -36,8 +36,8 @@ ChartJS.register(
   Legend
 );
 
-interface HydrographCreationProps {
-  hydrographData: HydrographDataPoint[];
+interface HyetographCreationProps {
+  hyetographData: HyetographDataPoint[];
   timeOfConcentration: number | null;
   rainfallEvent: string;
   selectedDuration: number;
@@ -47,8 +47,8 @@ interface HydrographCreationProps {
   csvFileName: string;
 }
 
-export default function HydrographCreation({
-  hydrographData,
+export default function HyetographCreation({
+  hyetographData,
   timeOfConcentration,
   rainfallEvent,
   selectedDuration,
@@ -56,17 +56,17 @@ export default function HydrographCreation({
   catchmentArea,
   runOffCoeff,
   csvFileName
-}: HydrographCreationProps) {
+}: HyetographCreationProps) {
   const [showDataTable, setShowDataTable] = useState(false);
   const chartRef = useRef<ChartJS<'line'>>(null);
 
   // Format data for Chart.js
   const chartData = {
-    labels: hydrographData.map((point) => `${point.time} min`),
+    labels: hyetographData.map((point) => `${point.time} min`),
     datasets: [
       {
         label: 'Runoff Flow Rate (m³/hr)',
-        data: hydrographData.map((point) => point.flowRate),
+        data: hyetographData.map((point) => point.flowRate),
         fill: {
           target: 'origin',
           above: 'rgba(53, 162, 235, 0.2)' // Fill color above the line
@@ -90,7 +90,7 @@ export default function HydrographCreation({
       },
       title: {
         display: true,
-        text: 'Stormwater Runoff Hydrograph',
+        text: 'Stormwater Runoff Hyetograph',
         font: {
           size: 16
         }
@@ -131,22 +131,22 @@ export default function HydrographCreation({
   const downloadChart = () => {
     if (chartRef.current) {
       const link = document.createElement('a');
-      link.download = 'stormwater-hydrograph.png';
+      link.download = 'stormwater-hyetograph.png';
       link.href = chartRef.current.toBase64Image();
       link.click();
     }
   };
 
   // Calculate the peak flow and total volume
-  // const peakFlow = Math.max(...hydrographData.map(point => point.flowRate));
+  // const peakFlow = Math.max(...hyetographData.map(point => point.flowRate));
   const intensityAtTc = selectedIntensity;
   const peakFlow = (intensityAtTc / 1000) * catchmentArea * runOffCoeff;
 
   // Calculate total volume under the curve (m³)
-  const totalVolume = hydrographData.reduce((volume, point, index) => {
+  const totalVolume = hyetographData.reduce((volume, point, index) => {
     if (index === 0) return 0;
 
-    const prevPoint = hydrographData[index - 1];
+    const prevPoint = hyetographData[index - 1];
     const timeStep = (point.time - prevPoint.time) / 60; // Convert to hours
     const avgFlow = (point.flowRate + prevPoint.flowRate) / 2;
 
@@ -185,7 +185,7 @@ export default function HydrographCreation({
 
         <Card>
           <CardContent className='pt-6'>
-            <h4 className='mb-2 font-medium'>Hydrograph Results</h4>
+            <h4 className='mb-2 font-medium'>Hyetograph Results</h4>
             <dl className='grid grid-cols-2 gap-x-4 gap-y-2 text-sm'>
               <dt className='text-muted-foreground'>Peak Flow Rate:</dt>
               <dd>{peakFlow.toFixed(2)} m³/hr</dd>
@@ -197,7 +197,7 @@ export default function HydrographCreation({
               <dd>{totalVolume.toFixed(2)} m³</dd>
 
               <dt className='text-muted-foreground'>Data Points:</dt>
-              <dd>{hydrographData.length}</dd>
+              <dd>{hyetographData.length}</dd>
 
               <dt className='text-muted-foreground'>Runoff Coefficient:</dt>
               {/* <dd>0.9 (assumed)</dd> */}
@@ -244,7 +244,7 @@ export default function HydrographCreation({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {hydrographData.map((point, index) => {
+              {hyetographData.map((point, index) => {
                 let phase = 'Rising';
                 if (timeOfConcentration && point.time >= timeOfConcentration) {
                   phase = point.time <= selectedDuration ? 'Peak' : 'Falling';
@@ -278,10 +278,10 @@ export default function HydrographCreation({
       <Card className='border-blue-200 bg-blue-50'>
         <CardContent className='pt-4'>
           <h4 className='mb-2 font-medium text-blue-900'>
-            About This Hydrograph
+            About This Hyetograph
           </h4>
           <p className='text-sm text-blue-800'>
-            This hydrograph was generated using intensity-duration data from
+            This hyetograph was generated using intensity-duration data from
             your uploaded CSV file. The peak flow occurs at the time of
             concentration ({timeOfConcentration} minutes), representing the
             worst-case scenario when the entire catchment contributes to runoff

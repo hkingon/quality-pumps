@@ -487,7 +487,7 @@ export default function RainfallInput({
           className='w-full cursor-pointer md:w-auto'
           disabled={!timeOfConcentration || !csvData || !selectedIntensity}
         >
-          Generate Hydrograph
+          Generate Hyetograph
         </Button>
       </div>
 

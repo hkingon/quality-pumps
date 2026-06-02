@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo, useRef } from 'react';
 
 /* Re-export for legacy sub-components */
-export interface HydrographDataPoint {
+export interface HyetographDataPoint {
   time: number;
   flowRate: number;
 }
@@ -82,7 +82,7 @@ interface HydroPoint {
 interface DurationResult {
   duration: number;
   durationLabel: string;
-  hydrograph: HydroPoint[];
+  hyetograph: HydroPoint[];
   peakFlow: number;
   detentionVolume: number;
 }
@@ -218,7 +218,7 @@ export default function AdvancedStormwaterCalculator() {
 
   /* -- All triangles -- */
   const [allResults, setAllResults] = useState<DurationResult[]>([]);
-  const [showAllTriangles, setShowAllTriangles] = useState(true);
+  const [showAllHyetographs, setShowAllHyetographs] = useState(true);
 
   /* -- Saved projects -- */
   const [projects, setProjects] = useState<Project[]>([]);
@@ -316,7 +316,7 @@ export default function AdvancedStormwaterCalculator() {
           setAllResults([]);
           setWorstDuration(null);
           setDetentionVolume(null);
-          setShowAllTriangles(true);
+          setShowAllHyetographs(true);
         } catch {
           setCsvError('Error processing CSV file.');
         }
@@ -366,8 +366,8 @@ export default function AdvancedStormwaterCalculator() {
     [csvData]
   );
 
-  /* ---------- Build Triangle for One Duration ---------- */
-  const buildTriangle = (duration: number, aep: string): HydroPoint[] => {
+  /* ---------- Build Hyetograph for One Duration ---------- */
+  const buildHyetograph = (duration: number, aep: string): HydroPoint[] => {
     const points: HydroPoint[] = [];
     const maxTcRaw = Math.max(...catchments.map((c) => c.toc || 0));
     const maxTc = Math.max(1, Math.round(maxTcRaw));
@@ -381,7 +381,7 @@ export default function AdvancedStormwaterCalculator() {
       peakFlow += (c.coefficient * I * c.area) / 3_600_000;
     }
 
-    // Generate trapezoidal hydrograph points using Modified Rational Method
+    // Generate trapezoidal hyetograph points using Modified Rational Method
     // Rising limb: tc, Falling limb: tc, Plateau: td - tc (total time is td + tc)
     const totalTime = duration + maxTc;
     for (let t = 0; t <= totalTime; t++) {
@@ -400,7 +400,7 @@ export default function AdvancedStormwaterCalculator() {
   };
 
   /* ---------- Calculate All Durations ---------- */
-  const calculateAllTriangles = () => {
+  const calculateAllHyetographs = () => {
     if (!csvData) {
       toast.error('Upload IFD CSV first.');
       return;
@@ -441,14 +441,14 @@ export default function AdvancedStormwaterCalculator() {
     for (const duration of targetDurations) {
       const stormAep = catchments[0]?.aep || '20%';
 
-      const hydrograph = buildTriangle(duration, stormAep);
-      const peak = Math.max(...hydrograph.map((p) => p.flowRate));
+      const hyetograph = buildHyetograph(duration, stormAep);
+      const peak = Math.max(...hyetograph.map((p) => p.flowRate));
 
       // Detention volume for this trapezoid (above pump line)
       let vol = 0;
-      for (let i = 0; i < hydrograph.length - 1; i++) {
-        const q1 = Math.max(0, hydrograph[i].flowRate - flowRateM3s);
-        const q2 = Math.max(0, hydrograph[i + 1].flowRate - flowRateM3s);
+      for (let i = 0; i < hyetograph.length - 1; i++) {
+        const q1 = Math.max(0, hyetograph[i].flowRate - flowRateM3s);
+        const q2 = Math.max(0, hyetograph[i + 1].flowRate - flowRateM3s);
         const avg = (q1 + q2) / 2;
         vol += avg * 60; // 60 seconds per minute step
       }
@@ -456,14 +456,14 @@ export default function AdvancedStormwaterCalculator() {
       results.push({
         duration: duration,
         durationLabel: formatDurationLabel(duration),
-        hydrograph,
+        hyetograph,
         peakFlow: peak,
         detentionVolume: vol
       });
     }
 
     if (results.length === 0) {
-      toast.error('Could not generate hydrographs. Check catchment data and CSV.');
+      toast.error('Could not generate hyetographs. Check catchment data and CSV.');
       return;
     }
 
@@ -476,31 +476,31 @@ export default function AdvancedStormwaterCalculator() {
     setAllResults(results);
     setWorstDuration(worst.duration);
     setDetentionVolume(convertVolume(worst.detentionVolume, 'm3', volumeUnit));
-    setShowAllTriangles(true);
-    toast.success(`Generated ${results.length} hydrographs. Worst case: ${worst.durationLabel}`);
+    setShowAllHyetographs(true);
+    toast.success(`Generated ${results.length} hyetographs. Worst case: ${worst.durationLabel}`);
   };
 
   /* ---------- Chart ---------- */
   const activeResult = useMemo(() => {
     if (allResults.length === 0) return null;
-    if (showAllTriangles) return null; // show all
+    if (showAllHyetographs) return null; // show all
     return allResults.find((r) => r.duration === worstDuration) || allResults[0];
-  }, [allResults, worstDuration, showAllTriangles]);
+  }, [allResults, worstDuration, showAllHyetographs]);
 
   const chartData = useMemo(() => {
     if (allResults.length === 0) return { labels: [], datasets: [] };
 
     const flowRateM3s = convertFlow(flowRate, flowUnit, 'm3/s');
 
-    if (showAllTriangles) {
+    if (showAllHyetographs) {
       // Show all trapezoids overlaid, lighter lines
-      const maxTime = Math.max(...allResults.map((r) => r.hydrograph[r.hydrograph.length - 1]?.time || r.duration));
+      const maxTime = Math.max(...allResults.map((r) => r.hyetograph[r.hyetograph.length - 1]?.time || r.duration));
       const labels = Array.from({ length: maxTime + 1 }, (_, i) => `${i}`);
 
       const datasets: any[] = allResults.map((r, idx) => ({
         label: `${r.durationLabel}`,
         data: Array(maxTime + 1).fill(null).map((_, t) => {
-          const pt = r.hydrograph.find((p) => p.time === t);
+          const pt = r.hyetograph.find((p) => p.time === t);
           return pt ? convertFlow(pt.flowRate, 'm3/s', flowUnit) : null;
         }),
         borderColor: `rgba(37, 99, 235, ${0.3 + (idx / allResults.length) * 0.4})`,
@@ -532,12 +532,12 @@ export default function AdvancedStormwaterCalculator() {
       const r = activeResult;
       if (!r) return { labels: [], datasets: [] };
 
-      const labels = r.hydrograph.map((p) => `${p.time}`);
+      const labels = r.hyetograph.map((p) => `${p.time}`);
 
       const datasets: any[] = [
         {
-          label: `Hydrograph (${r.durationLabel})`,
-          data: r.hydrograph.map((p) => convertFlow(p.flowRate, 'm3/s', flowUnit)),
+          label: `Hyetograph (${r.durationLabel})`,
+          data: r.hyetograph.map((p) => convertFlow(p.flowRate, 'm3/s', flowUnit)),
           borderColor: 'rgb(37, 99, 235)',
           backgroundColor: 'rgba(37, 99, 235, 0)',
           borderWidth: 2,
@@ -547,7 +547,7 @@ export default function AdvancedStormwaterCalculator() {
         },
         {
           label: 'Pump Discharge',
-          data: Array(r.hydrograph.length).fill(convertFlow(flowRateM3s, 'm3/s', flowUnit)),
+          data: Array(r.hyetograph.length).fill(convertFlow(flowRateM3s, 'm3/s', flowUnit)),
           borderColor: 'rgb(239, 68, 68)',
           borderWidth: 2,
           borderDash: [6, 4],
@@ -560,7 +560,7 @@ export default function AdvancedStormwaterCalculator() {
       if (r.detentionVolume > 0) {
         datasets.push({
           label: 'Detention Area',
-          data: r.hydrograph.map((p) => {
+          data: r.hyetograph.map((p) => {
             const f = convertFlow(p.flowRate, 'm3/s', flowUnit);
             const pumpF = convertFlow(flowRateM3s, 'm3/s', flowUnit);
             return f > pumpF ? f : pumpF;
@@ -574,7 +574,7 @@ export default function AdvancedStormwaterCalculator() {
 
       return { labels, datasets };
     }
-  }, [allResults, activeResult, showAllTriangles, flowRate, flowUnit, volumeUnit]);
+  }, [allResults, activeResult, showAllHyetographs, flowRate, flowUnit, volumeUnit]);
 
   const chartOptions: ChartOptions<'line'> = {
     responsive: true,
@@ -659,7 +659,7 @@ export default function AdvancedStormwaterCalculator() {
         max_duration: convertTime(maxDuration, maxDurationUnit, 'min'),
         max_duration_unit: maxDurationUnit,
         csv_data: csvData,
-        hydrograph_data: allResults.map((r) => ({ duration: r.duration, hydrograph: r.hydrograph }))
+        hyetograph_data: allResults.map((r) => ({ duration: r.duration, hyetograph: r.hyetograph }))
       });
       if (error) throw error;
       toast.success('Project saved!');
@@ -719,7 +719,7 @@ export default function AdvancedStormwaterCalculator() {
     <div className='mx-auto flex max-w-7xl gap-6 p-4'>
       {/* Main Content */}
       <div className='flex-1 space-y-6'>
-        <h1 className='text-2xl font-bold'>Stormwater Hydrograph</h1>
+        <h1 className='text-2xl font-bold'>Stormwater Hyetograph</h1>
 
         {/* Step 1: IFD Data */}
         <Card>
@@ -947,9 +947,9 @@ export default function AdvancedStormwaterCalculator() {
                       const pumpM3s = convertFlow(flowRateRef.current, newUnit, 'm3/s');
                       const updated = allResults.map((r) => {
                         let vol = 0;
-                        for (let i = 0; i < r.hydrograph.length - 1; i++) {
-                          const q1 = Math.max(0, r.hydrograph[i].flowRate - pumpM3s);
-                          const q2 = Math.max(0, r.hydrograph[i + 1].flowRate - pumpM3s);
+                        for (let i = 0; i < r.hyetograph.length - 1; i++) {
+                          const q1 = Math.max(0, r.hyetograph[i].flowRate - pumpM3s);
+                          const q2 = Math.max(0, r.hyetograph[i + 1].flowRate - pumpM3s);
                           const avg = (q1 + q2) / 2;
                           vol += avg * 60;
                         }
@@ -1010,7 +1010,7 @@ export default function AdvancedStormwaterCalculator() {
                       const val = parseFloat(e.target.value) || 0;
                       setMaxDuration(val);
                       if (allResults.length > 0) {
-                        toast.info('Click "Calculate Hydrographs" to apply the new duration limit.');
+                        toast.info('Click "Calculate Hyetographs" to apply the new duration limit.');
                       }
                     }}
                     min={1}
@@ -1022,7 +1022,7 @@ export default function AdvancedStormwaterCalculator() {
                     onValueChange={(v) => {
                       setMaxDurationUnit(v as TimeUnit);
                       if (allResults.length > 0) {
-                        toast.info('Click "Calculate Hydrographs" to apply the new duration limit.');
+                        toast.info('Click "Calculate Hyetographs" to apply the new duration limit.');
                       }
                     }}
                   >
@@ -1055,9 +1055,9 @@ export default function AdvancedStormwaterCalculator() {
                       const flowM3s = convertFlow(parseFloat(e.target.value) || 0, flowUnit, 'm3/s');
                       const updated = allResults.map((r) => {
                         let vol = 0;
-                        for (let i = 0; i < r.hydrograph.length - 1; i++) {
-                          const q1 = Math.max(0, r.hydrograph[i].flowRate - flowM3s);
-                          const q2 = Math.max(0, r.hydrograph[i + 1].flowRate - flowM3s);
+                        for (let i = 0; i < r.hyetograph.length - 1; i++) {
+                          const q1 = Math.max(0, r.hyetograph[i].flowRate - flowM3s);
+                          const q2 = Math.max(0, r.hyetograph[i + 1].flowRate - flowM3s);
                           const avg = (q1 + q2) / 2;
                           vol += avg * 60;
                         }
@@ -1098,7 +1098,7 @@ export default function AdvancedStormwaterCalculator() {
                   Storms analyzed: {allResults[0]?.durationLabel} – {allResults[allResults.length - 1]?.durationLabel} ({allResults.length} of {csvData?.length ?? 0} durations)
                 </p>
                 <p className='text-muted-foreground mt-1'>
-                  {showAllTriangles
+                  {showAllHyetographs
                     ? 'Showing all duration triangles overlaid'
                     : 'Showing worst-case triangle only'}
                 </p>
@@ -1117,17 +1117,17 @@ export default function AdvancedStormwaterCalculator() {
             )}
 
             <div className='flex flex-wrap gap-3'>
-              <Button onClick={calculateAllTriangles} className='cursor-pointer' disabled={!csvData}>
+              <Button onClick={calculateAllHyetographs} className='cursor-pointer' disabled={!csvData}>
                 <Calculator className='mr-2 h-4 w-4' />
-                Calculate Hydrographs
+                Calculate Hyetographs
               </Button>
               {allResults.length > 0 && (
                 <Button
                   variant='outline'
-                  onClick={() => setShowAllTriangles(!showAllTriangles)}
+                  onClick={() => setShowAllHyetographs(!showAllHyetographs)}
                   className='cursor-pointer'
                 >
-                  {showAllTriangles ? 'Show Worst Case Only' : 'Show All Triangles'}
+                  {showAllHyetographs ? 'Show Worst Case Only' : 'Show All Hyetographs'}
                 </Button>
               )}
               <Button
@@ -1150,7 +1150,7 @@ export default function AdvancedStormwaterCalculator() {
           <Card>
             <CardHeader className='flex flex-row items-center justify-between'>
               <CardTitle className='text-lg'>
-                {showAllTriangles ? 'All Duration Hydrographs' : 'Worst-Case Hydrograph'}
+                  {showAllHyetographs ? 'All Duration Hyetographs' : 'Worst-Case Hyetograph'}
               </CardTitle>
               <Button
                 variant='outline'
@@ -1158,7 +1158,7 @@ export default function AdvancedStormwaterCalculator() {
                 onClick={() => {
                   if (chartRef.current) {
                     const link = document.createElement('a');
-                    link.download = 'hydrograph.png';
+                    link.download = 'hyetograph.png';
                     link.href = chartRef.current.toBase64Image();
                     link.click();
                   }

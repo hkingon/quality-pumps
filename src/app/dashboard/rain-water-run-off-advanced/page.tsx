@@ -14,7 +14,7 @@ export default async function Page() {
             <div className="flex flex-1 flex-col space-y-6">
                 <Heading
                     title="(Advanced) Rain-Water Run-Off Calculator"
-                    description="This tool is designed for engineers to perform a detailed runoff/detention assessment based on a hydrograph model. It calculates time of concentration, rainfall event intensity, hydrograph creation, and pump capacity comparison."
+                    description="This tool is designed for engineers to perform a detailed runoff/detention assessment based on a hyetograph model. It calculates time of concentration, rainfall event intensity, hyetograph creation, and pump capacity comparison."
                 />
                 <Separator />
                 <Suspense fallback={<div className="text-sm text-muted-foreground">Loading calculator...</div>}>

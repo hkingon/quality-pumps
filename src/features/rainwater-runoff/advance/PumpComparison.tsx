@@ -14,7 +14,7 @@ import {
   ChartOptions,
   Filler
 } from 'chart.js';
-import { HydrographDataPoint } from './index';
+import { HyetographDataPoint } from './index';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -40,7 +40,7 @@ ChartJS.register(
 );
 
 interface PumpComparisonProps {
-  hydrographData: HydrographDataPoint[];
+  hyetographData: HyetographDataPoint[];
   pumpFlowRate: number;
   setPumpFlowRate: (value: number) => void;
   detentionVolume: number | null;
@@ -51,7 +51,7 @@ interface PumpComparisonProps {
 }
 
 export default function PumpComparison({
-  hydrographData,
+  hyetographData,
   pumpFlowRate,
   setPumpFlowRate,
   detentionVolume,
@@ -65,11 +65,11 @@ export default function PumpComparison({
 
   // Format data for Chart.js with pump capacity line
   const chartData = {
-    labels: hydrographData.map((point) => `${point.time} min`),
+    labels: hyetographData.map((point) => `${point.time} min`),
     datasets: [
       {
         label: 'Runoff Flow Rate (m³/hr)',
-        data: hydrographData.map((point) => point.flowRate),
+        data: hyetographData.map((point) => point.flowRate),
         borderColor: 'rgb(53, 162, 235)',
         backgroundColor: 'rgba(53, 162, 235, 0.5)',
         tension: 0.3,
@@ -77,7 +77,7 @@ export default function PumpComparison({
       },
       {
         label: 'Pump Capacity (m³/hr)',
-        data: Array(hydrographData.length).fill(pumpFlowRate),
+        data: Array(hyetographData.length).fill(pumpFlowRate),
         borderColor: 'rgb(255, 99, 132)',
         borderWidth: 2,
         borderDash: [5, 5],
@@ -87,11 +87,11 @@ export default function PumpComparison({
     ]
   };
 
-  // Format detention area data (area between hydrograph and pump capacity)
+  // Format detention area data (area between hyetograph and pump capacity)
   if (detentionVolume !== null && detentionVolume > 0) {
     chartData.datasets.push({
       label: 'Detention Required',
-      data: hydrographData.map((point) =>
+      data: hyetographData.map((point) =>
         point.flowRate > pumpFlowRate ? point.flowRate : pumpFlowRate
       ),
       borderColor: 'rgba(255, 99, 132, 0)',
@@ -167,8 +167,8 @@ export default function PumpComparison({
     handlePumpComparison();
   };
 
-  // Peak flow from the hydrograph
-  // const peakFlow = Math.max(...hydrographData.map(point => point.flowRate));
+  // Peak flow from the hyetograph
+  // const peakFlow = Math.max(...hyetographData.map(point => point.flowRate));
   const intensityAtTc = selectedIntensity;
   const peakFlow = (intensityAtTc / 1000) * catchmentArea * runOffCoeff;
 
@@ -260,7 +260,7 @@ export default function PumpComparison({
           <AccordionContent className='text-muted-foreground text-sm'>
             <p>
               Detention volume is calculated by finding the area between the
-              runoff hydrograph curve and the pump capacity line, where the
+              runoff hyetograph curve and the pump capacity line, where the
               runoff exceeds the pump capacity.
             </p>
             <ol className='mt-2 list-inside list-decimal space-y-1'>

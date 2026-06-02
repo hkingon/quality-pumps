@@ -24,8 +24,8 @@ create table if not exists stormwater_projects (
   -- minutes
   run_off_coeff numeric,
   -- global runoff coefficient if needed
-  hydrograph_data jsonb,
-  -- cached hydrograph points
+  hyetograph_data jsonb,
+  -- cached hyetograph points
   created_at timestamptz default now() not null,
   updated_at timestamptz default now() not null
 );
