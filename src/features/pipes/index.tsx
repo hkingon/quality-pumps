@@ -64,6 +64,18 @@ export default function PipeLibraryPage() {
   const [editID, setEditID] = useState('');
   const [editC, setEditC] = useState('');
 
+  // Multi-size addition dialog state
+  interface SizeEntry {
+    id: string;
+    nominal_size: string;
+    internal_diameter_mm: string;
+    hazen_williams_c: string;
+  }
+  const [sizeEntries, setSizeEntries] = useState<SizeEntry[]>([
+    { id: '1', nominal_size: '', internal_diameter_mm: '', hazen_williams_c: '' }
+  ]);
+  const [nextEntryId, setNextEntryId] = useState(2);
+
   const router = useRouter();
   const { user } = useAuth();
   const isAdmin = user?.user_metadata?.role === 'admin';
@@ -208,6 +220,72 @@ export default function PipeLibraryPage() {
     setEditC('');
   };
 
+  // Multi-size dialog helpers
+  const resetSizeEntries = () => {
+    setSizeEntries([{ id: '1', nominal_size: '', internal_diameter_mm: '', hazen_williams_c: '' }]);
+    setNextEntryId(2);
+  };
+
+  const addEmptyRow = () => {
+    setSizeEntries((prev) => [
+      ...prev,
+      { id: String(nextEntryId), nominal_size: '', internal_diameter_mm: '', hazen_williams_c: '' }
+    ]);
+    setNextEntryId((n) => n + 1);
+  };
+
+  const removeRow = (rowId: string) => {
+    setSizeEntries((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((e) => e.id !== rowId);
+    });
+  };
+
+  const updateRow = (rowId: string, field: keyof SizeEntry, value: string) => {
+    setSizeEntries((prev) =>
+      prev.map((e) => (e.id === rowId ? { ...e, [field]: value } : e))
+    );
+  };
+
+  const handleAddMultipleSizes = async (typeId: string, typeCreatedBy: string | null) => {
+    if (!isAdmin && typeCreatedBy !== user?.id) {
+      toast.error('You can only add sizes to your own pipe types');
+      return;
+    }
+    const valid = sizeEntries.filter(
+      (e) => e.nominal_size.trim() && e.internal_diameter_mm.trim() && e.hazen_williams_c.trim()
+    );
+    if (valid.length === 0) {
+      toast.error('Please enter at least one complete size entry');
+      return;
+    }
+    try {
+      const { error } = await supabase.from('pipe_sizes').insert(
+        valid.map((e) => ({
+          pipe_type_id: typeId,
+          nominal_size: e.nominal_size.trim(),
+          internal_diameter_mm: parseFloat(e.internal_diameter_mm),
+          hazen_williams_c: parseFloat(e.hazen_williams_c),
+          created_by: typeCreatedBy
+        }))
+      );
+      if (error) {
+        if (error.code === '23505') {
+          toast.error('One or more nominal sizes already exist for this pipe type');
+        } else {
+          throw error;
+        }
+        return;
+      }
+      toast.success(`${valid.length} pipe size(s) added`);
+      resetSizeEntries();
+      setIsDetailsOpen(false);
+      fetchData();
+    } catch {
+      toast.error('Failed to add pipe sizes');
+    }
+  };
+
   if (!user) {
     return (
       <div className='container mx-auto p-6'>
@@ -256,53 +334,95 @@ export default function PipeLibraryPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Add Size Dialog */}
+      {/* Add Sizes Dialog */}
       <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent>
+        <DialogContent className='max-w-2xl'>
           <DialogHeader>
             <DialogTitle>
-              Add Pipe Size — {selectedType?.name.replace(/_/g, ' ').replace(/@/g, '.')}
+              Add Pipe Sizes — {selectedType?.name.replace(/_/g, ' ').replace(/@/g, '.')}
             </DialogTitle>
           </DialogHeader>
-          <div className='space-y-4 py-4'>
-            <div className='space-y-2'>
-              <Label>Nominal Size</Label>
-              <Input
-                value={editNominal}
-                onChange={(e) => setEditNominal(e.target.value)}
-                placeholder='e.g. 50'
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label>Internal Diameter (mm)</Label>
-              <Input
-                type='number'
-                step='0.01'
-                value={editID}
-                onChange={(e) => setEditID(e.target.value)}
-                placeholder='e.g. 42.4'
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label>Hazen-Williams C</Label>
-              <Input
-                type='number'
-                step='0.1'
-                value={editC}
-                onChange={(e) => setEditC(e.target.value)}
-                placeholder='e.g. 147.1'
-              />
+          <div className='py-4'>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className='w-28'>Nominal Size</TableHead>
+                  <TableHead className='w-36'>ID (mm)</TableHead>
+                  <TableHead className='w-36'>Hazen-Williams C</TableHead>
+                  <TableHead className='w-16'></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sizeEntries.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell>
+                      <Input
+                        value={entry.nominal_size}
+                        onChange={(e) => updateRow(entry.id, 'nominal_size', e.target.value)}
+                        placeholder='e.g. 50'
+                        className='w-24'
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type='number'
+                        step='0.01'
+                        value={entry.internal_diameter_mm}
+                        onChange={(e) => updateRow(entry.id, 'internal_diameter_mm', e.target.value)}
+                        placeholder='e.g. 42.4'
+                        className='w-32'
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type='number'
+                        step='0.1'
+                        value={entry.hazen_williams_c}
+                        onChange={(e) => updateRow(entry.id, 'hazen_williams_c', e.target.value)}
+                        placeholder='e.g. 147.1'
+                        className='w-32'
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={() => removeRow(entry.id)}
+                        disabled={sizeEntries.length <= 1}
+                      >
+                        <Trash2 className='h-4 w-4 text-red-500' />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <div className='mt-2'>
+              <Button variant='outline' size='sm' onClick={addEmptyRow}>
+                <Plus className='mr-1 h-4 w-4' /> Add Row
+              </Button>
             </div>
           </div>
           <DialogFooter>
-            <Button variant='outline' onClick={() => { setIsDetailsOpen(false); cancelEdit(); }}>
+            <Button
+              variant='outline'
+              onClick={() => {
+                setIsDetailsOpen(false);
+                resetSizeEntries();
+              }}
+            >
               Cancel
             </Button>
             <Button
-              onClick={() => selectedType && handleAddSize(selectedType.id, selectedType.created_by)}
-              disabled={!editNominal || !editID || !editC}
+              onClick={() => selectedType && handleAddMultipleSizes(selectedType.id, selectedType.created_by)}
             >
-              Add Size
+              Add All Sizes (
+              {
+                sizeEntries.filter(
+                  (e) => e.nominal_size.trim() && e.internal_diameter_mm.trim() && e.hazen_williams_c.trim()
+                ).length
+              }
+              )
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -382,6 +502,7 @@ export default function PipeLibraryPage() {
                         size='sm'
                         onClick={() => {
                           setSelectedType(type);
+                          resetSizeEntries();
                           setIsDetailsOpen(true);
                         }}
                         className='cursor-pointer'
