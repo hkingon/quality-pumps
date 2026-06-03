@@ -176,7 +176,7 @@ export function SystemCurveInputs({
       {isExpanded && (
         <div className='flex gap-4 overflow-x-auto pb-4'>
           {system.components?.map((comp, i) => (
-            <Card key={comp.id} className='min-w-[200px] bg-slate-50 p-3'>
+            <Card key={comp.id} className='min-w-[200px] bg-muted/30 p-3'>
               <div className='mb-2 flex items-center justify-between'>
                 <span className='font-medium text-sm'>Discharge Curve</span>
                 <div className='flex gap-1'>
@@ -211,14 +211,14 @@ export function SystemCurveInputs({
 
           {/* Add Pipe Button */}
           <div
-            className='flex min-w-[120px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-4 hover:bg-gray-100'
+            className='flex min-w-[120px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/30 p-4 hover:bg-muted/50'
             onClick={() => {
               setEditingComponentId(null);
               setIsModalOpen(true);
             }}
           >
-            <Plus className='mb-2 h-8 w-8 text-gray-400' />
-            <span className='font-medium text-gray-500'>Add Pipe</span>
+            <Plus className='mb-2 h-8 w-8 text-muted-foreground' />
+            <span className='font-medium text-muted-foreground'>Add Pipe</span>
           </div>
         </div>
       )}
