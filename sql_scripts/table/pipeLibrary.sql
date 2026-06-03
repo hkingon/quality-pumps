@@ -25,11 +25,6 @@ create table if not exists pipe_sizes (
 -- RLS Policies: pipe_types
 alter table pipe_types enable row level security;
 
-create policy "Anyone can view pipe types"
-  on pipe_types for select
-  to authenticated, anon
-  using (true);
-
 create policy "Users can view global and their own pipe types"
   on pipe_types for select
   to authenticated
@@ -51,19 +46,20 @@ create policy "Users can delete their own pipe types"
   to authenticated
   using (created_by = auth.uid());
 
-create policy "Admins can manage all pipe types"
+create policy "Admins can manage global and their own pipe types"
   on pipe_types for all
   to authenticated
-  using (auth.jwt() -> 'user_metadata' ->> 'role' = 'admin')
-  with check (auth.jwt() -> 'user_metadata' ->> 'role' = 'admin');
+  using (
+    auth.jwt() -> 'user_metadata' ->> 'role' = 'admin'
+    and (created_by is null or created_by = auth.uid())
+  )
+  with check (
+    auth.jwt() -> 'user_metadata' ->> 'role' = 'admin'
+    and (created_by is null or created_by = auth.uid())
+  );
 
 -- RLS Policies: pipe_sizes
 alter table pipe_sizes enable row level security;
-
-create policy "Anyone can view pipe sizes"
-  on pipe_sizes for select
-  to authenticated, anon
-  using (true);
 
 create policy "Users can view global and their own pipe sizes"
   on pipe_sizes for select
@@ -92,11 +88,17 @@ create policy "Users can delete their own pipe sizes"
   to authenticated
   using (created_by = auth.uid());
 
-create policy "Admins can manage all pipe sizes"
+create policy "Admins can manage global and their own pipe sizes"
   on pipe_sizes for all
   to authenticated
-  using (auth.jwt() -> 'user_metadata' ->> 'role' = 'admin')
-  with check (auth.jwt() -> 'user_metadata' ->> 'role' = 'admin');
+  using (
+    auth.jwt() -> 'user_metadata' ->> 'role' = 'admin'
+    and (created_by is null or created_by = auth.uid())
+  )
+  with check (
+    auth.jwt() -> 'user_metadata' ->> 'role' = 'admin'
+    and (created_by is null or created_by = auth.uid())
+  );
 
 -- Indexes
 create index idx_pipe_sizes_type on pipe_sizes(pipe_type_id);

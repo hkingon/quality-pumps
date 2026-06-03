@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Edit, Trash2, Eye, Globe, User, Save, X } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, Eye, Globe, User, Save, X, RefreshCw } from 'lucide-react';
 import {
   Table, TableHeader, TableHead, TableBody, TableRow, TableCell
 } from '@/components/ui/table';
@@ -53,7 +53,7 @@ export default function PipeLibraryPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState('my');
+  const [activeTab, setActiveTab] = useState('global');
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
 
   const [selectedType, setSelectedType] = useState<PipeTypeWithSizes | null>(null);
@@ -89,6 +89,7 @@ export default function PipeLibraryPage() {
           (sizes || []).filter((s) => s.pipe_type_id === t.id)
         )
       }));
+      console.log('[PipeLibrary] fetched', combined.length, 'types,', sizes?.length || 0, 'sizes for user:', user?.id, 'isAdmin:', isAdmin);
       setPipeTypes(combined);
     } catch (err) {
       console.error(err);
@@ -100,6 +101,14 @@ export default function PipeLibraryPage() {
 
   useEffect(() => {
     fetchData();
+  }, []);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      if (!loading) fetchData();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, []);
 
   const getCurrentTypes = () => pipeTypes;
@@ -164,7 +173,7 @@ export default function PipeLibraryPage() {
         nominal_size: editNominal.trim(),
         internal_diameter_mm: parseFloat(editID),
         hazen_williams_c: parseFloat(editC),
-        created_by: user?.id
+        created_by: typeCreatedBy
       });
       if (error) {
         if (error.code === '23505') {
@@ -178,6 +187,7 @@ export default function PipeLibraryPage() {
       setEditNominal('');
       setEditID('');
       setEditC('');
+      setIsDetailsOpen(false);
       fetchData();
     } catch {
       toast.error('Failed to add pipe size');
@@ -238,7 +248,7 @@ export default function PipeLibraryPage() {
         </TabsList>
 
         <TabsContent value='global' className='mt-6'>
-          {renderTypeList(globalTypes, false)}
+          {renderTypeList(globalTypes, isAdmin)}
         </TabsContent>
 
         <TabsContent value='my' className='mt-6'>
@@ -337,6 +347,9 @@ export default function PipeLibraryPage() {
                 ))}
               </SelectContent>
             </Select>
+            <Button variant='outline' size='icon' onClick={fetchData} disabled={loading} title='Refresh data'>
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
           </div>
         </CardHeader>
         <CardContent>

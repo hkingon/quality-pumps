@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -18,6 +19,9 @@ import {
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle
 } from '@/components/ui/dialog';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select';
 
 interface PipeType {
   id: string;
@@ -38,6 +42,7 @@ export default function ManagePipeTypes() {
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newStandard, setNewStandard] = useState('');
+  const [newVisibility, setNewVisibility] = useState<'global' | 'custom'>('custom');
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -45,6 +50,7 @@ export default function ManagePipeTypes() {
   const [editStandard, setEditStandard] = useState('');
 
   const { user } = useAuth();
+  const router = useRouter();
   const isAdmin = user?.user_metadata?.role === 'admin';
 
   useEffect(() => {
@@ -59,6 +65,7 @@ export default function ManagePipeTypes() {
         .select('*')
         .order('name', { ascending: true });
       if (error) throw error;
+      console.log('[ManagePipeTypes] fetched types:', data?.length, 'for user:', user?.id, 'isAdmin:', isAdmin);
       setPipeTypes(data || []);
     } catch {
       toast.error('Failed to load pipe types');
@@ -77,8 +84,12 @@ export default function ManagePipeTypes() {
       toast.error('Please enter a name');
       return;
     }
+    if (isAdmin && newVisibility === 'global' && !newName.trim()) {
+      // name already validated above, skip
+    }
     try {
       setSaving(true);
+      const isGlobal = isAdmin && newVisibility === 'global';
       const { data, error } = await supabase
         .from('pipe_types')
         .insert([
@@ -86,7 +97,7 @@ export default function ManagePipeTypes() {
             name: newName.trim(),
             description: newDesc.trim() || null,
             standard: newStandard.trim() || null,
-            created_by: user?.id
+            created_by: isGlobal ? null : user?.id
           }
         ])
         .select()
@@ -97,11 +108,13 @@ export default function ManagePipeTypes() {
         return;
       }
       setPipeTypes([...pipeTypes, data]);
-      toast.success('Pipe type added');
+      toast.success(isGlobal ? 'Global pipe type added' : 'Custom pipe type added');
       setShowAddDialog(false);
       setNewName('');
       setNewDesc('');
       setNewStandard('');
+      setNewVisibility('custom');
+      router.refresh();
     } catch {
       toast.error('Failed to add pipe type');
     } finally {
@@ -208,12 +221,24 @@ export default function ManagePipeTypes() {
       </div>
 
       {isAdmin ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>All Types ({pipeTypes.length})</CardTitle>
-          </CardHeader>
-          <CardContent>{renderTypeTable(pipeTypes, true)}</CardContent>
-        </Card>
+        <>
+          <Card>
+            <CardHeader className='flex flex-row items-center gap-2'>
+              <Globe className='h-5 w-5 text-muted-foreground' />
+              <CardTitle>Global Types ({globalTypes.length})</CardTitle>
+              <p className='text-muted-foreground ml-auto text-sm'>Visible to all users</p>
+            </CardHeader>
+            <CardContent>{renderTypeTable(globalTypes, true)}</CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className='flex flex-row items-center gap-2'>
+              <User className='h-5 w-5 text-muted-foreground' />
+              <CardTitle>My Custom Types ({myTypes.length})</CardTitle>
+            </CardHeader>
+            <CardContent>{renderTypeTable(myTypes, true)}</CardContent>
+          </Card>
+        </>
       ) : (
         <>
           <Card>
@@ -241,7 +266,7 @@ export default function ManagePipeTypes() {
             <DialogTitle>Add New Pipe Type</DialogTitle>
             <DialogDescription>
               {isAdmin
-                ? 'Create a new pipe material / standard category that will be available to all users.'
+                ? 'Create a new pipe material / standard category. Choose whether it is shared globally or private to you.'
                 : 'Create a custom pipe material / standard category private to you.'}
             </DialogDescription>
           </DialogHeader>
@@ -258,6 +283,23 @@ export default function ManagePipeTypes() {
               <Label>Standard</Label>
               <Input value={newStandard} onChange={(e) => setNewStandard(e.target.value)} placeholder='e.g. AS4130-2009' />
             </div>
+            {isAdmin && (
+              <div className='space-y-2'>
+                <Label>Visibility</Label>
+                <Select
+                  value={newVisibility}
+                  onValueChange={(v) => setNewVisibility(v as 'global' | 'custom')}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='custom'>Custom (private to me)</SelectItem>
+                    <SelectItem value='global'>Global (shared with all users)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant='outline' onClick={() => setShowAddDialog(false)} disabled={saving}>Cancel</Button>
