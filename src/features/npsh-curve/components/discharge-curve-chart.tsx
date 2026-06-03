@@ -142,8 +142,14 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
   const [showDataTable, setShowDataTable] = useState(false);
   const chartRef = useRef<ChartJS<'line'>>(null);
 
-  // Helper to add crosshair (horizontal + vertical + center dot)
-  const addCrosshair = (flow: number, head: number, color: string, labelPrefix: string) => {
+  // Helper to add crosshair (horizontal + vertical lines)
+  const addCrosshair = (
+    flow: number,
+    head: number,
+    color: string,
+    labelPrefix: string,
+    meta: { pumpIndex?: number; systemIndex?: number } = {}
+  ) => {
     // Horizontal line
     datasets.push({
       label: `${labelPrefix} H`,
@@ -153,7 +159,9 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
       pointRadius: 0,
       showLine: true,
       tension: 0,
-      yAxisID: 'y'
+      yAxisID: 'y',
+      isCrosshair: true,
+      ...meta
     });
     // Vertical line
     datasets.push({
@@ -164,18 +172,9 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
       pointRadius: 0,
       showLine: true,
       tension: 0,
-      yAxisID: 'y'
-    });
-    // Center dot
-    datasets.push({
-      label: `${labelPrefix} Dot`,
-      data: [{ x: flow, y: head }],
-      borderColor: color,
-      backgroundColor: color,
-      pointRadius: 6,
-      type: 'scatter',
-      showLine: false,
-      yAxisID: 'y'
+      yAxisID: 'y',
+      isCrosshair: true,
+      ...meta
     });
   };
 
@@ -213,6 +212,8 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
               ? baseColor.replace('rgb', 'rgba').replace(')', `, ${opacity})`)
               : baseColor,
           yAxisID: 'y',
+          isHeadCurve: true,
+          pumpIndex: index,
           segment: {
             borderDash: (context: any) => {
               const index = context.p0DataIndex || 0;
@@ -416,7 +417,8 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
       pointRadius: 0,
       fill: false,
       tension: 0.4,
-      yAxisID: 'y'
+      yAxisID: 'y',
+      systemIndex: index
     });
   });
 
@@ -428,7 +430,8 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
         system.operatingFlow,
         system.operatingHead,
         systemColor,
-        `${system.name || `System ${index + 1}`} End`
+        `${system.name || `System ${index + 1}`} End`,
+        { systemIndex: index }
       );
     }
   });
@@ -468,7 +471,8 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
           pt.x,
           pt.y,
           pumpColor,
-          `Intersect ${sysIndex + 1}-${pumpIndex + 1}-${i + 1}`
+          `Intersect ${sysIndex + 1}-${pumpIndex + 1}-${i + 1}`,
+          { systemIndex: sysIndex, pumpIndex: pumpIndex % pumpData.length }
         );
       });
     });
@@ -719,6 +723,38 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
       legend: {
         display: true,
         position: 'top',
+        onClick: (e, legendItem, legend) => {
+          const chart = legend.chart;
+          const index = legendItem.datasetIndex;
+          if (index === undefined || index === null) return;
+          const dataset = chart.data.datasets[index] as any;
+          const willBeVisible = !chart.isDatasetVisible(index);
+
+          // Toggle the clicked dataset
+          chart.setDatasetVisibility(index, willBeVisible);
+
+          // If pump HEAD curve toggled → toggle its intersection crosshairs
+          if (dataset.isHeadCurve && dataset.pumpIndex !== undefined) {
+            chart.data.datasets.forEach((ds, i) => {
+              const crosshairDs = ds as any;
+              if (crosshairDs.isCrosshair && crosshairDs.pumpIndex === dataset.pumpIndex) {
+                chart.setDatasetVisibility(i, willBeVisible);
+              }
+            });
+          }
+
+          // If system curve toggled → toggle its end crosshair + all intersections
+          if (dataset.systemIndex !== undefined && !dataset.isHeadCurve && !dataset.isCrosshair) {
+            chart.data.datasets.forEach((ds, i) => {
+              const crosshairDs = ds as any;
+              if (crosshairDs.isCrosshair && crosshairDs.systemIndex === dataset.systemIndex) {
+                chart.setDatasetVisibility(i, willBeVisible);
+              }
+            });
+          }
+
+          chart.update();
+        },
         labels: {
           filter: (legendItem, chartData) => {
             const datasetLabel = legendItem.text;
