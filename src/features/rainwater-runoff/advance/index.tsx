@@ -587,7 +587,7 @@ export default function AdvancedStormwaterCalculator() {
       },
       title: { display: false },
       tooltip: {
-        mode: 'index',
+        mode: 'nearest',
         intersect: false,
         callbacks: {
           label: (ctx) =>
