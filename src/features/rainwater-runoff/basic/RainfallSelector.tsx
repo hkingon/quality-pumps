@@ -68,7 +68,7 @@ export default function RainfallSelector({
             <SelectValue placeholder="Select a city" />
           </SelectTrigger>
           <SelectContent>
-            {locationsData.map((city) => (
+            {[...locationsData].sort((a, b) => a.label.localeCompare(b.label)).map((city) => (
               <SelectItem key={city.label} value={city.label}>
                 {city.label}
               </SelectItem>
