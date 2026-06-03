@@ -105,32 +105,19 @@ const getPumpColor = (index: number): string => {
   return generateDistinctColor(index);
 };
 
-const createChevronArrow = (color: string) => {
-  const size = 24;
-  const strokeWidth = 3;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-
-  const ctx = canvas.getContext("2d")!;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = strokeWidth;
-  ctx.lineCap = "round";
-
-  ctx.save();
-  ctx.translate(size / 2, size / 2);
-
-  ctx.beginPath();
-  ctx.moveTo(-4, -6);   // top-left
-  ctx.lineTo(4, 0);     // center point
-  ctx.lineTo(-4, 6);    // bottom-left
-  ctx.stroke();
-
-  ctx.restore();
-  return canvas;
+const findLineIntersection = (
+  x1: number, y1: number, x2: number, y2: number,
+  x3: number, y3: number, x4: number, y4: number
+): { x: number; y: number } | null => {
+  const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+  if (Math.abs(denom) < 1e-10) return null;
+  const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+  const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+  if (t >= -1e-6 && t <= 1.000001 && u >= -1e-6 && u <= 1.000001) {
+    return { x: x1 + t * (x2 - x1), y: y1 + t * (y2 - y1) };
+  }
+  return null;
 };
-
 
 export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
   pumpData,
@@ -154,6 +141,43 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
   const datasets: any[] = [];
   const [showDataTable, setShowDataTable] = useState(false);
   const chartRef = useRef<ChartJS<'line'>>(null);
+
+  // Helper to add crosshair (horizontal + vertical + center dot)
+  const addCrosshair = (flow: number, head: number, color: string, labelPrefix: string) => {
+    // Horizontal line
+    datasets.push({
+      label: `${labelPrefix} H`,
+      data: [{ x: 0, y: head }, { x: flow, y: head }],
+      borderColor: color,
+      borderWidth: 1.5,
+      pointRadius: 0,
+      showLine: true,
+      tension: 0,
+      yAxisID: 'y'
+    });
+    // Vertical line
+    datasets.push({
+      label: `${labelPrefix} V`,
+      data: [{ x: flow, y: 0 }, { x: flow, y: head }],
+      borderColor: color,
+      borderWidth: 1.5,
+      pointRadius: 0,
+      showLine: true,
+      tension: 0,
+      yAxisID: 'y'
+    });
+    // Center dot
+    datasets.push({
+      label: `${labelPrefix} Dot`,
+      data: [{ x: flow, y: head }],
+      borderColor: color,
+      backgroundColor: color,
+      pointRadius: 6,
+      type: 'scatter',
+      showLine: false,
+      yAxisID: 'y'
+    });
+  };
 
   // Helper to add segments for pump curves (P vs Q) as a single dataset
   const addSegments = (
@@ -396,56 +420,58 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
     });
   });
 
-  // Add operating duty points for discharge system curves
+  // Add system-end crosshairs (replace chevron arrows)
   dischargeSystemCurveData.forEach((system, index) => {
     if (system.operatingFlow && system.operatingHead) {
-      const systemName = system.name || `Discharge System ${index + 1}`;
-      datasets.push({
-        label: `${systemName} Operating Point`,
-        data: [{ x: system.operatingFlow, y: system.operatingHead }],
-        borderColor: dischargeColors[index % dischargeColors.length],
-        backgroundColor: dischargeColors[index % dischargeColors.length],
-        pointRadius: 8,
-        pointStyle: () =>
-          createChevronArrow(dischargeColors[index % dischargeColors.length]),
-        rotation: (context: any) => {
-          const chart = context.chart;
-          if (!chart) return 0;
-          const xAxis = chart.scales.x;
-          const yAxis = chart.scales.y;
-          if (!xAxis || !yAxis) return 0;
-
-          const points = dischargeSystemCurvePoints[index];
-          if (!points || points.length < 2) return 0;
-
-          const Qd = system.operatingFlow || 0;
-          let p1 = points[Math.max(0, points.length - 2)];
-          let p2 = points[points.length - 1];
-          for (let i = 0; i < points.length - 1; i++) {
-            if (points[i].flow <= Qd && points[i+1].flow >= Qd) {
-              p1 = points[i];
-              p2 = points[i+1];
-              break;
-            }
-          }
-          if (p1.flow === p2.flow) return 0;
-
-          const x0 = xAxis.getPixelForValue(p1.flow);
-          const x1 = xAxis.getPixelForValue(p2.flow);
-          const y0 = yAxis.getPixelForValue(p1.head);
-          const y1 = yAxis.getPixelForValue(p2.head);
-
-          const dx = x1 - x0;
-          const dy = y1 - y0;
-
-          return Math.atan2(dy, dx) * (180 / Math.PI);
-        },
-        type: 'scatter',
-        showLine: false,
-        yAxisID: 'y'
-        // legendDisplay: false
-      });
+      const systemColor = dischargeColors[index % dischargeColors.length];
+      addCrosshair(
+        system.operatingFlow,
+        system.operatingHead,
+        systemColor,
+        `${system.name || `System ${index + 1}`} End`
+      );
     }
+  });
+
+  // Add pump intersection crosshairs
+  dischargeSystemCurvePoints.forEach((systemPoints, sysIndex) => {
+    const allPumpCurves = [
+      ...segmentedPumpCurves,
+      ...segmentedModifiedPumpCurves,
+      ...segmentedCombinedPumpCurves,
+      ...segmentedModifiedCombinedPumpCurves
+    ];
+
+    allPumpCurves.forEach((pumpCurve, pumpIndex) => {
+      const pumpPoints = [
+        ...(pumpCurve.start || []),
+        ...(pumpCurve.middle || []),
+        ...(pumpCurve.end || [])
+      ].sort((a, b) => a.flow - b.flow);
+
+      const intersections: { x: number; y: number }[] = [];
+      for (let i = 0; i < systemPoints.length - 1; i++) {
+        for (let j = 0; j < pumpPoints.length - 1; j++) {
+          const intersect = findLineIntersection(
+            systemPoints[i].flow, systemPoints[i].head,
+            systemPoints[i + 1].flow, systemPoints[i + 1].head,
+            pumpPoints[j].flow, pumpPoints[j].head,
+            pumpPoints[j + 1].flow, pumpPoints[j + 1].head
+          );
+          if (intersect) intersections.push(intersect);
+        }
+      }
+
+      const pumpColor = getPumpColor(pumpIndex % pumpData.length);
+      intersections.forEach((pt, i) => {
+        addCrosshair(
+          pt.x,
+          pt.y,
+          pumpColor,
+          `Intersect ${sysIndex + 1}-${pumpIndex + 1}-${i + 1}`
+        );
+      });
+    });
   });
 
   if (numberOfDutyPumps > 1) {
@@ -696,10 +722,14 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
         labels: {
           filter: (legendItem, chartData) => {
             const datasetLabel = legendItem.text;
-            // Show pump curves, power, efficiency, but hide BEP and operating points from legend
+            // Show pump curves, power, efficiency, but hide BEP, operating points, and crosshair datasets from legend
             return (
               !datasetLabel.includes('BEP') &&
-              !datasetLabel.includes('Operating Point')
+              !datasetLabel.includes('Operating Point') &&
+              !datasetLabel.includes(' H') &&
+              !datasetLabel.includes(' V') &&
+              !datasetLabel.includes(' Dot') &&
+              !datasetLabel.includes('Intersect')
             );
           },
           usePointStyle: true,
