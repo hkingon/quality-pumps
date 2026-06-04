@@ -367,31 +367,26 @@ export default function AdvancedStormwaterCalculator() {
   );
 
   /* ---------- Build Hyetograph for One Duration ---------- */
-  const buildHyetograph = (duration: number, aep: string): HydroPoint[] => {
+  const buildHyetograph = (duration: number): HydroPoint[] => {
     const points: HydroPoint[] = [];
     const maxTcRaw = Math.max(...catchments.map((c) => c.toc || 0));
     const maxTc = Math.max(1, Math.round(maxTcRaw));
 
-    // Calculate combined peak flow at 'duration' (td) using log-log interpolated intensity
-    let peakFlow = 0;
-    for (const c of catchments) {
-      if (!c.area || !c.coefficient || !c.toc) continue;
-      const I = interpolateIntensity(duration, c.aep);
-      if (!I) continue;
-      peakFlow += (c.coefficient * I * c.area) / 3_600_000;
-    }
-
-    // Generate trapezoidal hyetograph points using Modified Rational Method
-    // Rising limb: tc, Falling limb: tc, Plateau: td - tc (total time is td + tc)
+    // Generate combined hyetograph by summing individual catchment trapezoids.
+    // Each catchment uses its own Tc and AEP to compute its flow contribution
+    // at every time step. The combined flow is the pointwise sum.
     const totalTime = duration + maxTc;
     for (let t = 0; t <= totalTime; t++) {
       let flowRate = 0;
-      if (maxTc > 0) {
-        const ramp1 = Math.max(0, Math.min(t, maxTc));
-        const ramp2 = Math.max(0, Math.min(t - duration, maxTc));
-        flowRate = (peakFlow / maxTc) * (ramp1 - ramp2);
-      } else {
-        flowRate = t <= duration ? peakFlow : 0;
+      for (const c of catchments) {
+        if (!c.area || !c.coefficient || !c.toc) continue;
+        const I = interpolateIntensity(duration, c.aep);
+        if (!I) continue;
+        const peakFlowC = (c.coefficient * I * c.area) / 3_600_000;
+        const tc = Math.max(1, Math.round(c.toc));
+        const ramp1 = Math.max(0, Math.min(t, tc));
+        const ramp2 = Math.max(0, Math.min(t - duration, tc));
+        flowRate += (peakFlowC / tc) * (ramp1 - ramp2);
       }
       points.push({ time: t, flowRate });
     }
@@ -414,23 +409,16 @@ export default function AdvancedStormwaterCalculator() {
     const flowRateM3s = convertFlow(flowRateRef.current, flowUnitRef.current, 'm3/s');
     const maxDurationMin = convertTime(maxDuration, maxDurationUnit, 'min');
 
-    const maxTcRaw = Math.max(...catchments.map((c) => c.toc || 0));
-    const maxTc = Math.max(1, Math.round(maxTcRaw));
+    const minTcRaw = Math.min(...catchments.filter((c) => c.toc > 0).map((c) => c.toc));
+    const minTc = Math.max(1, Math.round(minTcRaw));
 
-    // Create storm durations at 6-minute intervals starting at maxTc
+    // Create storm durations at 6-minute intervals starting at minTc
     const targetDurations: number[] = [];
-    if (maxTc <= 6) {
-      for (let d = 6; d <= maxDurationMin; d += 6) {
-        targetDurations.push(d);
-      }
-    } else {
-      // First event is at maxTc
-      targetDurations.push(maxTc);
-      // Subsequent events are at multiples of 6 greater than maxTc
-      const nextMultipleOf6 = Math.ceil((maxTc + 0.0001) / 6) * 6;
-      for (let d = nextMultipleOf6; d <= maxDurationMin; d += 6) {
-        targetDurations.push(d);
-      }
+    const firstDuration = minTc;
+    targetDurations.push(firstDuration);
+    const nextMultipleOf6 = Math.ceil((firstDuration + 0.0001) / 6) * 6;
+    for (let d = nextMultipleOf6; d <= maxDurationMin; d += 6) {
+      targetDurations.push(d);
     }
 
     if (targetDurations.length === 0) {
@@ -439,9 +427,7 @@ export default function AdvancedStormwaterCalculator() {
     }
 
     for (const duration of targetDurations) {
-      const stormAep = catchments[0]?.aep || '20%';
-
-      const hyetograph = buildHyetograph(duration, stormAep);
+      const hyetograph = buildHyetograph(duration);
       const peak = Math.max(...hyetograph.map((p) => p.flowRate));
 
       // Detention volume for this trapezoid (above pump line)
