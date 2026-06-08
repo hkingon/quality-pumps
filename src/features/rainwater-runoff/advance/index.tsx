@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 
 /* Re-export for legacy sub-components */
 export interface HyetographDataPoint {
@@ -186,6 +187,7 @@ const formatDurationLabel = (min: number): string => {
 /* ---------- Component ---------- */
 export default function AdvancedStormwaterCalculator() {
   const { user } = useAuth();
+  const router = useRouter();
 
   /* -- Catchments -- */
   const [catchments, setCatchments] = useState<Catchment[]>([
@@ -788,13 +790,20 @@ export default function AdvancedStormwaterCalculator() {
                   <strong className='text-amber-800'>⚠️ Model Limitations</strong>
                   <ul className='mt-1 list-inside list-disc space-y-1 text-amber-700'>
                     <li>
-                      The triangle method calculates a <strong>theoretical maximum</strong> detention volume.
+                      The hyetograph method calculates a <strong>theoretical maximum</strong> detention volume.
                     </li>
                     <li>
                       It does <strong>not</strong> model soil absorption, evaporation, or saturation.
                     </li>
                     <li>
-                      For small urban catchments (&lt; 2,000 m²), we recommend limiting analysis to <strong>≤ 6 hours</strong>.
+                      For small catchments &lt; 2000m², the{' '}
+                      <button
+                        className='text-blue-600 underline font-medium cursor-pointer bg-transparent border-0 p-0 hover:text-blue-800'
+                        onClick={() => router.push('/dashboard/rain-water-run-off-basic')}
+                      >
+                        AS/NZS3500.3 method
+                      </button>{' '}
+                      should be used.
                     </li>
                     <li>
                       Results for multi-day storms (24h+) may <strong>overestimate</strong> real detention needs.
@@ -1094,8 +1103,8 @@ export default function AdvancedStormwaterCalculator() {
                 </p>
                 <p className='text-muted-foreground mt-1'>
                   {showAllHyetographs
-                    ? 'Showing all duration triangles overlaid'
-                    : 'Showing worst-case triangle only'}
+                    ? 'Showing all duration hyetographs overlaid'
+                    : 'Showing worst-case hyetograph only'}
                 </p>
               </div>
             )}
