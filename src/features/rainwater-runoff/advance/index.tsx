@@ -569,7 +569,16 @@ export default function AdvancedStormwaterCalculator() {
     plugins: {
       legend: {
         position: 'top',
-        labels: { usePointStyle: true, boxWidth: 8 }
+        labels: {
+          usePointStyle: true,
+          boxWidth: 8,
+          filter: (legendItem) => {
+            if (showAllHyetographs) {
+              return legendItem.text === 'Pump Discharge';
+            }
+            return true;
+          }
+        }
       },
       title: { display: false },
       tooltip: {

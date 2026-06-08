@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import type { SavedPump, SystemCurveData } from '@/types';
+import type { PumpScoringResult } from '@/lib/pump-scoring';
 import { Pencil, Plus, Search, X, Filter, ChevronDown } from 'lucide-react';
 import { convertFlow, convertHead, FlowUnit, HeadUnit } from '@/lib/units';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
@@ -28,6 +29,13 @@ import {
   PHASE_OPTIONS,
   POLE_OPTIONS
 } from '@/types/filters';
+import {
+  calculatePreliminaryDutyMetrics,
+  finalizeDutyMetrics,
+  aggregateAndMode,
+  aggregateOrMode,
+  calculateBep
+} from '@/lib/pump-scoring';
 
 interface SavedPumpsListProps {
   savedPumps: SavedPump[];
@@ -60,6 +68,21 @@ export function SavedPumpsList({
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const [selectedPumpId, setSelectedPumpId] = useState<string | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [showHidden, setShowHidden] = useState(() => {
+    try {
+      return sessionStorage.getItem('showHiddenPumps') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [penaltyFactor, setPenaltyFactor] = useState(() => {
+    try {
+      const stored = localStorage.getItem('pumpPenaltyFactor');
+      return stored !== null ? parseFloat(stored) : 1.0;
+    } catch {
+      return 1.0;
+    }
+  });
 
   const allPumps = useMemo(() => {
     const ownedPumps = savedPumps.map((pump) => ({
@@ -122,6 +145,27 @@ export function SavedPumpsList({
 
   const clearAllFilters = () => {
     setFilters(initialFilters);
+  };
+
+  const handleToggleShowHidden = () => {
+    setShowHidden((prev) => {
+      try {
+        sessionStorage.setItem('showHiddenPumps', String(!prev));
+      } catch {
+        /* ignore */
+      }
+      return !prev;
+    });
+  };
+
+  const handlePenaltyFactorChange = (value: number) => {
+    const clamped = Math.max(0, value);
+    setPenaltyFactor(clamped);
+    try {
+      localStorage.setItem('pumpPenaltyFactor', String(clamped));
+    } catch {
+      /* ignore */
+    }
   };
 
   const getActiveFilterCount = () => {
@@ -192,255 +236,217 @@ export function SavedPumpsList({
   };
 
   const filteredPumps = useMemo(() => {
-    return allPumps
-      .filter((pump) => {
-        // Search query
-        if (
-          searchQuery &&
-          !pump.name.toLowerCase().includes(searchQuery.toLowerCase())
-        ) {
-          return false;
-        }
+    // First, filter by search + UI filters
+    const filtered = allPumps.filter((pump) => {
+      if (
+        searchQuery &&
+        !pump.name.toLowerCase().includes(searchQuery.toLowerCase())
+      ) {
+        return false;
+      }
 
-        // Multi-select filters
-        if (!matchesMultiSelect(pump.pumpClass, filters.pumpClass))
-          return false;
-        if (!matchesMultiSelect(pump.application, filters.application))
-          return false;
-        if (!matchesMultiSelect(pump.impellerType, filters.impellerType))
-          return false;
-        if (
-          !matchesMultiSelect(
-            pump.configuration,
-            filters.installationConfiguration
-          )
+      if (!matchesMultiSelect(pump.pumpClass, filters.pumpClass))
+        return false;
+      if (!matchesMultiSelect(pump.application, filters.application))
+        return false;
+      if (!matchesMultiSelect(pump.impellerType, filters.impellerType))
+        return false;
+      if (
+        !matchesMultiSelect(
+          pump.configuration,
+          filters.installationConfiguration
         )
+      )
+        return false;
+
+      if (filters.otherTraits.length > 0) {
+        const pumpTraits = pump.otherTraits || [];
+        const hasMatchingTrait = filters.otherTraits.some((trait) =>
+          pumpTraits.includes(trait)
+        );
+        if (!hasMatchingTrait) return false;
+      }
+
+      if (filters.phases.length > 0) {
+        const pumpPhaseStr = pump.phases?.toString();
+        const matchesPhase = filters.phases.some((phase) => {
+          if (phase === '1 Phase') return pumpPhaseStr === '1';
+          if (phase === '3 Phase') return pumpPhaseStr === '3';
+          if (phase === 'DC') {
+            const typeArr = Array.isArray(pump.type) ? pump.type : [pump.type || ''];
+            return typeArr.some(t =>
+              t.toLowerCase().includes('dc') ||
+              t.toLowerCase().includes('solar')
+            );
+          }
           return false;
+        });
+        if (!matchesPhase) return false;
+      }
 
-        // Other traits - check if pump has any of the selected traits
-        if (filters.otherTraits.length > 0) {
-          const pumpTraits = pump.otherTraits || [];
-          const hasMatchingTrait = filters.otherTraits.some((trait) =>
-            pumpTraits.includes(trait)
-          );
-          if (!hasMatchingTrait) return false;
+      if (!matchesMultiSelect(pump.poles?.toString(), filters.poles))
+        return false;
+      if (!matchesMultiSelect(pump.brand || '', filters.brand)) return false;
+
+      if (!isInRange(pump.kw, filters.powerRange)) return false;
+      if (!isInRange(pump.amps, filters.currentRange)) return false;
+      if (!isInRange(pump.voltage, filters.voltageRange)) return false;
+      if (!isInRange(pump.inlet, filters.inletSizeRange)) return false;
+      if (!isInRange(pump.outlet, filters.outletSizeRange)) return false;
+      if (!isInRange(pump.maxTemp, filters.temperatureRange)) return false;
+
+      return true;
+    });
+
+    // Valid duties only
+    const validDuties = systemCurveData.filter(
+      (d) => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0
+    );
+
+    // --- Two-pass scoring ---
+    // Pass 1: preliminary metrics for ALL filtered pumps
+    const preliminariesForAll = filtered.map((pump) => {
+      const perDuty = validDuties.map((duty) =>
+        calculatePreliminaryDutyMetrics(
+          pump,
+          duty,
+          flowUnit,
+          headUnit
+        )
+      );
+      return { pump, perDuty };
+    });
+
+    // Compute P_abs_best per duty across all capable (non-hidden) pumps
+    const pAbsBestPerDuty: number[] = validDuties.map((_, dutyIdx) => {
+      let best = Infinity;
+      for (const { perDuty } of preliminariesForAll) {
+        const pre = perDuty[dutyIdx];
+        if (!pre.isHidden && pre.pAbs < best) {
+          best = pre.pAbs;
         }
+      }
+      return best !== Infinity ? best : 0;
+    });
 
-        // Phases - handle "1 Phase", "3 Phase", "DC" format
-        if (filters.phases.length > 0) {
-          const pumpPhaseStr = pump.phases?.toString();
-          const matchesPhase = filters.phases.some((phase) => {
-            if (phase === '1 Phase') return pumpPhaseStr === '1';
-            if (phase === '3 Phase') return pumpPhaseStr === '3';
-            if (phase === 'DC') {
-              const typeArr = Array.isArray(pump.type) ? pump.type : [pump.type || ''];
-              return typeArr.some(t =>
-                t.toLowerCase().includes('dc') ||
-                t.toLowerCase().includes('solar')
-              );
-            }
-            return false;
-          });
-          if (!matchesPhase) return false;
-        }
+    // Pass 2: finalize and aggregate
+    const scored = preliminariesForAll.map(({ pump, perDuty }) => {
+      const finalized = perDuty.map((pre, i) =>
+        finalizeDutyMetrics(pre, pAbsBestPerDuty[i], penaltyFactor)
+      );
 
-        // Poles
-        if (!matchesMultiSelect(pump.poles?.toString(), filters.poles))
-          return false;
+      const result: PumpScoringResult & {
+        convertedMaxFlow: number;
+        convertedMaxHead: number;
+      } =
+        dischargeCurveMode === 'and'
+          ? (() => {
+              const agg = aggregateAndMode(finalized);
+              return {
+                finalScore: agg.finalScore,
+                isHidden: agg.isHidden,
+                dutiesPassedCount: finalized.filter((m) => !m.isHidden).length,
+                avgPassedScore:
+                  finalized.length > 0
+                    ? finalized.reduce((s, m) => s + m.score, 0) /
+                      finalized.length
+                    : Infinity,
+                bestDutyP_abs: 0,
+                dutyMetrics: finalized,
+                convertedMaxFlow: convertFlow(
+                  pump.maxFlow,
+                  pump.flowUnit,
+                  flowUnit
+                ),
+                convertedMaxHead: convertHead(
+                  pump.maxHead,
+                  pump.headUnit,
+                  headUnit
+                )
+              };
+            })()
+          : (() => {
+              const agg = aggregateOrMode(finalized);
+              return {
+                finalScore: agg.finalScore,
+                isHidden: agg.isHidden,
+                bestDutyName: agg.bestDutyName,
+                dutiesPassedCount: agg.dutiesPassedCount,
+                avgPassedScore: agg.avgPassedScore,
+                bestDutyP_abs: agg.bestDutyP_abs,
+                dutyMetrics: finalized,
+                convertedMaxFlow: convertFlow(
+                  pump.maxFlow,
+                  pump.flowUnit,
+                  flowUnit
+                ),
+                convertedMaxHead: convertHead(
+                  pump.maxHead,
+                  pump.headUnit,
+                  headUnit
+                )
+              };
+            })();
 
-        // Brand
-        if (!matchesMultiSelect(pump.brand || '', filters.brand)) return false;
+      // BEP in display units
+      const bep = calculateBep(pump);
+      const bepFlowConverted = convertFlow(bep.bepFlow, pump.flowUnit, flowUnit);
+      const bepHeadConverted = convertHead(bep.bepHead, pump.headUnit, headUnit);
 
-        // Numeric range filters
-        if (!isInRange(pump.kw, filters.powerRange)) return false;
-        if (!isInRange(pump.amps, filters.currentRange)) return false;
-        if (!isInRange(pump.voltage, filters.voltageRange)) return false;
-        if (!isInRange(pump.inlet, filters.inletSizeRange)) return false;
-        if (!isInRange(pump.outlet, filters.outletSizeRange)) return false;
-        if (!isInRange(pump.maxTemp, filters.temperatureRange)) return false;
+      return {
+        ...pump,
+        bepFlow: bepFlowConverted,
+        bepHead: bepHeadConverted,
+        convertedMaxFlow: result.convertedMaxFlow,
+        convertedMaxHead: result.convertedMaxHead,
+        canMeetDuty: !result.isHidden,
+        score: result.finalScore,
+        isHidden: result.isHidden,
+        bestDutyName: result.bestDutyName,
+        dutiesPassedCount: result.dutiesPassedCount,
+        avgPassedScore: result.avgPassedScore,
+        bestDutyP_abs: result.bestDutyP_abs
+      };
+    });
 
-        return true;
-      })
-      .map((pump) => {
-        const pumpMaxFlow = convertFlow(pump.maxFlow, pump.flowUnit, flowUnit);
-        const pumpMaxHead = convertHead(pump.maxHead, pump.headUnit, headUnit);
+    // Sort: visible first (by score asc), then hidden at bottom
+    scored.sort((a, b) => {
+      if (!a.isHidden && b.isHidden) return -1;
+      if (a.isHidden && !b.isHidden) return 1;
 
-        let bepFlow = 0;
-        let bepHead = 0;
+      if (!a.isHidden && !b.isHidden) {
+        // Primary: score ascending
+        if (a.score !== b.score) return a.score - b.score;
 
-        if (pump.pvsq && pump.pvsq.length > 0) {
-          let maxProduct = 0;
-          pump.pvsq.forEach((point) => {
-            const product = point.flow * point.head;
-            if (product > maxProduct) {
-              maxProduct = product;
-              bepFlow = point.flow;
-              bepHead = point.head;
-            }
-          });
-        } else {
-          const numPoints = 100;
-          let maxProduct = 0;
-          for (let i = 0; i <= numPoints; i++) {
-            const flow = (pump.maxFlow * i) / numPoints;
-            const head = pump.maxHead * (1 - Math.pow(flow / pump.maxFlow, 2));
-            const product = flow * head;
-            if (product > maxProduct) {
-              maxProduct = product;
-              bepFlow = flow;
-              bepHead = head;
-            }
-          }
-        }
+        // OR-mode tie-breakers (only when scores are equal)
+        if (dischargeCurveMode === 'or') {
+          // Tie-breaker 1: highest number of duties passed
+          if ((b.dutiesPassedCount || 0) !== (a.dutiesPassedCount || 0))
+            return (b.dutiesPassedCount || 0) - (a.dutiesPassedCount || 0);
 
-        const bepFlowConverted = convertFlow(bepFlow, pump.flowUnit, flowUnit);
-        const bepHeadConverted = convertHead(bepHead, pump.headUnit, headUnit);
-
-        const getDutyMetrics = (targetFlow: number, targetHead: number) => {
-          const targetFlowInPumpUnits = convertFlow(targetFlow, flowUnit, pump.flowUnit);
-          const targetHeadInPumpUnits = convertHead(targetHead, headUnit, pump.headUnit);
-
-          let canMeet = false;
+          // Tie-breaker 2: lowest average passed score
           if (
-            targetFlowInPumpUnits > 0 &&
-            targetHeadInPumpUnits > 0 &&
-            targetFlowInPumpUnits <= pump.maxFlow
-          ) {
-            if (pump.pvsq && pump.pvsq.length > 0) {
-              const sortedPoints = [...pump.pvsq].sort((a, b) => a.flow - b.flow);
-              let pumpHeadAtOperatingFlow = 0;
-              let lowerPoint = sortedPoints[0];
-              let upperPoint = sortedPoints[sortedPoints.length - 1];
+            (a.avgPassedScore || Infinity) !==
+            (b.avgPassedScore || Infinity)
+          )
+            return (a.avgPassedScore || Infinity) - (b.avgPassedScore || Infinity);
 
-              for (let i = 0; i < sortedPoints.length - 1; i++) {
-                if (
-                  sortedPoints[i].flow <= targetFlowInPumpUnits &&
-                  sortedPoints[i + 1].flow >= targetFlowInPumpUnits
-                ) {
-                  lowerPoint = sortedPoints[i];
-                  upperPoint = sortedPoints[i + 1];
-                  break;
-                }
-              }
-
-              if (lowerPoint.flow === upperPoint.flow) {
-                pumpHeadAtOperatingFlow = lowerPoint.head;
-              } else {
-                const ratio =
-                  (targetFlowInPumpUnits - lowerPoint.flow) /
-                  (upperPoint.flow - lowerPoint.flow);
-                pumpHeadAtOperatingFlow =
-                  lowerPoint.head + ratio * (upperPoint.head - lowerPoint.head);
-              }
-
-              const tolerance = 0.1;
-              canMeet = targetHeadInPumpUnits <= pumpHeadAtOperatingFlow + tolerance;
-            } else {
-              const pumpHeadAtOperatingFlow =
-                pump.maxHead * (1 - Math.pow(targetFlowInPumpUnits / pump.maxFlow, 2));
-              const tolerance = 0.1;
-              canMeet = targetHeadInPumpUnits <= pumpHeadAtOperatingFlow + tolerance;
-            }
-          }
-
-          let s = Infinity;
+          // Tie-breaker 3: lowest absorbed power at best duty
           if (
-            canMeet &&
-            targetFlow > 0 &&
-            targetHead > 0 &&
-            bepFlowConverted > 0 &&
-            bepHeadConverted > 0
-          ) {
-            const k = 1;
-            const etaDuty = 0.65;
-            const flowRatio = targetFlow / bepFlowConverted;
-            const headRatio = targetHead / bepHeadConverted;
-
-            if (flowRatio > 0 && headRatio > 0) {
-              const flowTerm = Math.pow(Math.log(flowRatio), 2);
-              const headTerm = Math.pow(Math.log(headRatio), 2);
-              const efficiencyTerm = k * (1 - etaDuty);
-              s = Math.sqrt(flowTerm + headTerm) + efficiencyTerm;
-            }
-          }
-
-          const dist = Math.sqrt(
-            Math.pow(bepFlowConverted - targetFlow, 2) +
-            Math.pow(bepHeadConverted - targetHead, 2)
-          );
-
-          return { canMeet, score: s, bepDistance: dist };
-        };
-
-        const validDuties = systemCurveData.filter(d => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0);
-        
-        let overallCanMeetDuty = dischargeCurveMode === 'and' ? true : false;
-        let finalScore = Infinity;
-        let finalBepDistance = Infinity;
-
-        if (validDuties.length === 0) {
-          overallCanMeetDuty = false;
-          finalScore = Infinity;
-          finalBepDistance = 0;
-        } else {
-          if (dischargeCurveMode === 'and') {
-             let totalScore = 0;
-             let totalDistance = 0;
-             for (const duty of validDuties) {
-               const metrics = getDutyMetrics(duty.operatingFlow, duty.operatingHead);
-               overallCanMeetDuty = overallCanMeetDuty && metrics.canMeet;
-               totalScore += metrics.score;
-               totalDistance += metrics.bepDistance;
-             }
-             if (overallCanMeetDuty) {
-               finalScore = totalScore;
-               finalBepDistance = totalDistance;
-             } else {
-               finalBepDistance = totalDistance; // sum of distances still
-             }
-          } else {
-             // OR mode
-             for (const duty of validDuties) {
-               const metrics = getDutyMetrics(duty.operatingFlow, duty.operatingHead);
-               overallCanMeetDuty = overallCanMeetDuty || metrics.canMeet;
-               if (metrics.canMeet && metrics.score < finalScore) {
-                 finalScore = metrics.score;
-                 finalBepDistance = metrics.bepDistance;
-               }
-             }
-             // Fallback for distance if not meeting any
-             if (!overallCanMeetDuty) {
-               let minDistance = Infinity;
-               for (const duty of validDuties) {
-                 const metrics = getDutyMetrics(duty.operatingFlow, duty.operatingHead);
-                 if (metrics.bepDistance < minDistance) {
-                   minDistance = metrics.bepDistance;
-                 }
-               }
-               finalBepDistance = minDistance !== Infinity ? minDistance : 0;
-             }
-          }
+            (a.bestDutyP_abs || Infinity) !==
+            (b.bestDutyP_abs || Infinity)
+          )
+            return (a.bestDutyP_abs || Infinity) - (b.bestDutyP_abs || Infinity);
         }
 
-        return {
-          ...pump,
-          bepDistance: finalBepDistance !== Infinity ? finalBepDistance : 0,
-          canMeetDuty: overallCanMeetDuty,
-          score: finalScore,
-          bepFlow: bepFlowConverted,
-          bepHead: bepHeadConverted,
-          convertedMaxFlow: pumpMaxFlow,
-          convertedMaxHead: pumpMaxHead
-        };
-      })
-      .sort((a, b) => {
-        if (a.canMeetDuty && !b.canMeetDuty) return -1;
-        if (!a.canMeetDuty && b.canMeetDuty) return 1;
-        if (a.canMeetDuty && b.canMeetDuty) {
-          return a.score - b.score;
-        }
-        return a.bepDistance - b.bepDistance;
-      });
+        return 0;
+      }
+
+      // Both hidden — keep original relative order or sort by name
+      return a.name.localeCompare(b.name);
+    });
+
+    return scored;
   }, [
     allPumps,
     searchQuery,
@@ -448,7 +454,8 @@ export function SavedPumpsList({
     systemCurveData,
     flowUnit,
     headUnit,
-    dischargeCurveMode
+    dischargeCurveMode,
+    penaltyFactor
   ]);
 
   const handleViewPump = (pumpId: string): void => {
@@ -655,6 +662,23 @@ export function SavedPumpsList({
         </CollapsibleContent>
       </Collapsible>
 
+      {/* Penalty Factor Control */}
+      <div className='flex items-center gap-2 rounded border p-2'>
+        <label className='text-muted-foreground text-xs whitespace-nowrap'>
+          Flow Ratio Penalty Factor:
+        </label>
+        <Input
+          type='number'
+          step={0.1}
+          min={0}
+          value={penaltyFactor}
+          onChange={(e) =>
+            handlePenaltyFactorChange(parseFloat(e.target.value))
+          }
+          className='h-7 w-24 text-sm'
+        />
+      </div>
+
       {/* Operating Duty Info */}
       {systemCurveData.some(d => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0) && (
         <div className='text-muted-foreground bg-muted rounded p-2 text-xs'>
@@ -681,123 +705,147 @@ export function SavedPumpsList({
       </div>
 
       {/* Pumps List */}
-      {filteredPumps.length === 0 ? (
-        <div className='text-muted-foreground py-8 text-center'>
-          {allPumps.length === 0
-            ? 'No saved or public pumps available.'
-            : 'No pumps match your search and filters.'}
-        </div>
-      ) : (
-        <ul className='max-h-[400px] space-y-2 overflow-y-auto'>
-          {filteredPumps.map((pump, index) => {
-            const isOnChart = pumpsOnChart.includes(pump.id);
-            return (
-              <li
-                key={pump.id}
-                className={`flex items-center justify-between rounded border p-2 ${pump.canMeetDuty && pump.score <= 1.2
-                  ? 'border-green-300 bg-green-100 dark:border-green-800 dark:bg-green-950'
-                  : pump.canMeetDuty && pump.score > 1.2
-                    ? 'border-yellow-300 bg-yellow-100 dark:border-yellow-800 dark:bg-yellow-950'
-                    : 'border-red-300 bg-red-100 dark:border-red-800 dark:bg-red-950'
+      {(() => {
+        const visible = filteredPumps.filter((p) => !p.isHidden);
+        const hidden = filteredPumps.filter((p) => p.isHidden);
+        const displayPumps = showHidden
+          ? [...visible, ...hidden]
+          : visible;
+
+        return displayPumps.length === 0 ? (
+          <div className='text-muted-foreground py-8 text-center'>
+            {allPumps.length === 0
+              ? 'No saved or public pumps available.'
+              : 'No pumps match your search and filters.'}
+          </div>
+        ) : (
+          <ul className='max-h-[400px] space-y-2 overflow-y-auto'>
+            {displayPumps.map((pump, index) => {
+              const isOnChart = pumpsOnChart.includes(pump.id);
+              return (
+                <li
+                  key={pump.id}
+                  className={`flex items-center justify-between rounded border p-2 ${
+                    pump.isHidden
+                      ? 'border-red-300 bg-red-100 dark:border-red-800 dark:bg-red-950'
+                      : 'border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900'
                   }`}
-              >
-                <div className='mr-2 truncate'>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        className='flex cursor-pointer items-center gap-2 border-none bg-transparent p-0 hover:underline'
-                        style={{
-                          all: 'unset',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.5rem'
-                        }}
-                        onClick={() => handleViewPump(pump.id)}
-                        aria-label='View pump curves'
-                      >
-                        <span className='font-medium'>{pump.name}</span>
-                        {pump.isPublic && (
-                          <span className='rounded bg-blue-600 px-1 py-0.5 text-xs text-white dark:bg-blue-700'>
-                            PUBLIC
-                          </span>
-                        )}
-                        {index === 0 && pump.canMeetDuty && (
-                          <span className='rounded bg-green-600 px-1 py-0.5 text-xs text-white dark:bg-green-700'>
-                            BEST
-                          </span>
-                        )}
-                        {!pump.canMeetDuty && (
-                          <span className='rounded bg-red-600 px-1 py-0.5 text-xs text-white dark:bg-red-700'>
-                            UNABLE
-                          </span>
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side='right' align='center'>
-                      View pump curves
-                    </TooltipContent>
-                  </Tooltip>
-                  <div className='text-muted-foreground text-xs'>
-                    Head: {pump.convertedMaxHead.toFixed(1)} {headUnit}, Flow:{' '}
-                    {pump.convertedMaxFlow.toFixed(1)} {flowUnit}
-                  </div>
-                  <div className='flex items-center gap-1 text-muted-foreground text-xs'>
-                    Brand: {pump.brand} | Type:
-                    <div className='flex flex-wrap gap-1 ml-1'>
-                      {Array.isArray(pump.type) ? (
-                        pump.type.map((t) => (
-                          <Badge key={t} variant='secondary' className='px-1 py-0 text-[10px] h-4'>
-                            {t}
-                          </Badge>
-                        ))
-                      ) : (
-                        <Badge variant='secondary' className='px-1 py-0 text-[10px] h-4'>
-                          {pump.type || 'N/A'}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  {systemCurveData.some(d => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0) && (
+                >
+                  <div className='mr-2 truncate'>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          className='flex cursor-pointer items-center gap-2 border-none bg-transparent p-0 hover:underline'
+                          style={{
+                            all: 'unset',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem'
+                          }}
+                          onClick={() => handleViewPump(pump.id)}
+                          aria-label='View pump curves'
+                        >
+                          <span className='font-medium'>{pump.name}</span>
+                          {pump.isPublic && (
+                            <span className='rounded bg-blue-600 px-1 py-0.5 text-xs text-white dark:bg-blue-700'>
+                              PUBLIC
+                            </span>
+                          )}
+                          {index === 0 && !pump.isHidden && (
+                            <span className='rounded bg-green-600 px-1 py-0.5 text-xs text-white dark:bg-green-700'>
+                              BEST
+                            </span>
+                          )}
+                          {pump.isHidden && (
+                            <span className='rounded bg-red-600 px-1 py-0.5 text-xs text-white dark:bg-red-700'>
+                              UNABLE
+                            </span>
+                          )}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side='right' align='center'>
+                        View pump curves
+                      </TooltipContent>
+                    </Tooltip>
                     <div className='text-muted-foreground text-xs'>
-                      BEP: {pump.bepFlow.toFixed(1)} {flowUnit} at{' '}
-                      {pump.bepHead.toFixed(1)} {headUnit}
-                      {pump.canMeetDuty && pump.score !== Infinity && (
-                        <span className='ml-2 text-green-600 dark:text-green-400'>
-                          (Score: {pump.score.toFixed(3)})
-                        </span>
-                      )}
+                      Head: {pump.convertedMaxHead.toFixed(1)} {headUnit}, Flow:{' '}
+                      {pump.convertedMaxFlow.toFixed(1)} {flowUnit}
                     </div>
-                  )}
-                </div>
-                <div className='flex shrink-0 gap-2'>
-                  <Button
-                    className='cursor-pointer border border-black'
-                    variant={isOnChart ? 'destructive' : 'outline'}
-                    size='sm'
-                    onClick={() => togglePumpOnChart(pump)}
-                  >
-                    {isOnChart ? (
-                      <X className='h-4 w-4' />
-                    ) : (
-                      <Plus className='h-4 w-4' />
+                    <div className='flex items-center gap-1 text-muted-foreground text-xs'>
+                      Brand: {pump.brand} | Type:
+                      <div className='flex flex-wrap gap-1 ml-1'>
+                        {Array.isArray(pump.type) ? (
+                          pump.type.map((t) => (
+                            <Badge key={t} variant='secondary' className='px-1 py-0 text-[10px] h-4'>
+                              {t}
+                            </Badge>
+                          ))
+                        ) : (
+                          <Badge variant='secondary' className='px-1 py-0 text-[10px] h-4'>
+                            {pump.type || 'N/A'}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    {systemCurveData.some(d => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0) && (
+                      <div className='text-muted-foreground text-xs'>
+                        BEP: {pump.bepFlow.toFixed(1)} {flowUnit} at{' '}
+                        {pump.bepHead.toFixed(1)} {headUnit}
+                        {!pump.isHidden && pump.score !== Infinity && (
+                          <span className='ml-2 text-green-600 dark:text-green-400'>
+                            {dischargeCurveMode === 'or' && pump.bestDutyName
+                              ? `(Score [${pump.bestDutyName}]: ${pump.score.toFixed(3)})`
+                              : `(Score: ${pump.score.toFixed(3)})`}
+                          </span>
+                        )}
+                      </div>
                     )}
-                  </Button>
-                  {!pump.isPublic && (
+                  </div>
+                  <div className='flex shrink-0 gap-2'>
                     <Button
                       className='cursor-pointer border border-black'
-                      variant='secondary'
+                      variant={isOnChart ? 'destructive' : 'outline'}
                       size='sm'
-                      onClick={() => editPumpFromSaved(pump)}
+                      onClick={() => togglePumpOnChart(pump)}
                     >
-                      <Pencil className='h-3 w-3' />
+                      {isOnChart ? (
+                        <X className='h-4 w-4' />
+                      ) : (
+                        <Plus className='h-4 w-4' />
+                      )}
                     </Button>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                    {!pump.isPublic && (
+                      <Button
+                        className='cursor-pointer border border-black'
+                        variant='secondary'
+                        size='sm'
+                        onClick={() => editPumpFromSaved(pump)}
+                      >
+                        <Pencil className='h-3 w-3' />
+                      </Button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        );
+      })()}
+
+      {/* Show Hidden Button */}
+      {filteredPumps.some((p) => p.isHidden) && (
+        <div className='pt-2'>
+          <Button
+            variant='outline'
+            className='w-full cursor-pointer'
+            onClick={handleToggleShowHidden}
+          >
+            {showHidden
+              ? 'Hide Failed Pumps'
+              : `Show Hidden (${filteredPumps.filter((p) => p.isHidden).length} failed)`}
+          </Button>
+        </div>
       )}
 
       <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
