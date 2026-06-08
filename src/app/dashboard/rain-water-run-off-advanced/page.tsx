@@ -5,7 +5,7 @@ import AdvancedRainwaterRunOffCalculator from '@/features/rainwater-runoff/advan
 import { Suspense } from 'react';
 
 export const metadata = {
-    title: 'Dashboard: (Advanced) Rain-Water Run-Off Calculator',
+    title: 'Dashboard: Hyetograph-Based Rainfall-Runoff and Detention Routing',
 };
 
 export default async function Page() {
@@ -13,7 +13,7 @@ export default async function Page() {
         <PageContainer>
             <div className="flex flex-1 flex-col space-y-6">
                 <Heading
-                    title="(Advanced) Rain-Water Run-Off Calculator"
+                    title="Hyetograph-Based Rainfall-Runoff and Detention Routing"
                     description="This tool is designed for engineers to perform a detailed runoff/detention assessment based on a hyetograph model. It calculates time of concentration, rainfall event intensity, hyetograph creation, and pump capacity comparison."
                 />
                 <Separator />

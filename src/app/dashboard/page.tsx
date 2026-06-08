@@ -180,17 +180,18 @@ export default function DashboardPage() {
       featured: true
     },
     {
-      title: 'Basic Rain-Water Run-Off',
-      description: 'Quick runoff calculations for standard applications',
+      title: 'Stormwater Pump Station Design - AS/NZS3500.3',
+      description:
+        'Calculate wet-well active storage and duty pump requirements as per AS/NZS 3500.3 Section 9 compliance',
       icon: CloudRain,
       route: '/dashboard/rain-water-run-off-basic',
       color: 'bg-cyan-500',
       featured: false
     },
     {
-      title: 'Advanced Rain-Water Run-Off',
+      title: 'Hyetograph-Based Rainfall-Runoff and Detention Routing',
       description:
-        'Detailed runoff/detention assessment with hydrograph modeling',
+        'Detailed runoff/detention assessment with routing modeling',
       icon: Waves,
       route: '/dashboard/rain-water-run-off-advanced',
       color: 'bg-purple-500',

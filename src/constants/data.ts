@@ -41,13 +41,13 @@ export const navItems: NavItem[] = [
         shortcut: ['f', 'f']
       },
       {
-        title: '(Basic) Rain-Water Run-Off Calculator',
+        title: 'Stormwater Pump Station Design - AS/NZS3500.3',
         url: '/dashboard/rain-water-run-off-basic',
         icon: 'rwrob',
         shortcut: ['r', 'b']
       },
       {
-        title: '(Advanced) Rain-Water Run-Off Calculator',
+        title: 'Hyetograph-Based Rainfall-Runoff and Detention Routing',
         url: '/dashboard/rain-water-run-off-advanced',
         icon: 'rwroa',
         shortcut: ['r', 'a']

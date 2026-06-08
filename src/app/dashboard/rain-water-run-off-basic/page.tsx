@@ -6,7 +6,7 @@ import { Suspense } from 'react';
 import rainfallData from '@/data/rainfallAUData.json';
 
 export const metadata = {
-    title: 'Dashboard: (Basic) Rain-Water Run-Off Calculator',
+    title: 'Dashboard: Stormwater Pump Station Design - AS/NZS3500.3',
 };
 
 export default async function Page() {
@@ -14,8 +14,8 @@ export default async function Page() {
         <PageContainer>
             <div className="flex flex-1 flex-col space-y-6">
                 <Heading
-                    title="(Basic) Rain-Water Run-Off Calculator"
-                    description="Estimate friction loss and system duty for different pipe sizes and types."
+                    title="Stormwater Pump Station Design - AS/NZS3500.3"
+                    description="Calculate wet-well active storage and duty pump requirements as per AS/NZS 3500.3 Section 9 compliance."
                 />
                 <Separator />
                 <Suspense fallback={<div className="text-sm text-muted-foreground">Loading calculator...</div>}>
