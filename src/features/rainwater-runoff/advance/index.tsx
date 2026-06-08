@@ -43,7 +43,7 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table';
-import { Download, Trash2, Plus, Save, Upload, CheckCircle, Calculator, Loader2, Info } from 'lucide-react';
+import { Download, Trash2, Plus, Save, Upload, CheckCircle, Calculator, Loader2, Info, Search, MapPin, CloudRain, ExternalLink, Globe } from 'lucide-react';
 import Papa from 'papaparse';
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/contexts/auth-context';
@@ -218,6 +218,15 @@ export default function AdvancedStormwaterCalculator() {
   const [csvError, setCsvError] = useState('');
   const [showBomHelp, setShowBomHelp] = useState(false);
 
+  /* -- Auto-Fetch / Geocoding -- */
+  const [ifdSourceMode, setIfdSourceMode] = useState<'auto' | 'upload'>('auto');
+  const [addressSearchQuery, setAddressSearchQuery] = useState('');
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [inputLatitude, setInputLatitude] = useState('');
+  const [inputLongitude, setInputLongitude] = useState('');
+  const [isFetchingIFD, setIsFetchingIFD] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState('');
+
   /* -- All triangles -- */
   const [allResults, setAllResults] = useState<DurationResult[]>([]);
   const [showAllHyetographs, setShowAllHyetographs] = useState(true);
@@ -258,10 +267,11 @@ export default function AdvancedStormwaterCalculator() {
   };
 
   /* ---------- IFD Parsing ---------- */
-  const parseIFDFile = (file: File) => {
-    setCsvFileName(file.name);
+  const parseIFDText = (csvText: string, fileName: string) => {
+    setCsvFileName(fileName);
     setCsvError('');
-    Papa.parse(file, {
+    
+    Papa.parse(csvText, {
       skipEmptyLines: true,
       complete: (results) => {
         try {
@@ -274,6 +284,19 @@ export default function AdvancedStormwaterCalculator() {
             setCsvError('CSV file is empty.');
             return;
           }
+
+          // Detect if the CSV contains Depth (mm) instead of Intensity (mm/h)
+          let isDepth = false;
+          for (let i = 0; i < Math.min(rows.length, 10); i++) {
+            if (rows[i] && rows[i][0]) {
+              const rowStr = rows[i].join(' ').toLowerCase();
+              if (rowStr.includes('depth') && rowStr.includes('(mm)')) {
+                isDepth = true;
+                break;
+              }
+            }
+          }
+
           let headerRowIndex = -1;
           let aepColumns: string[] = [];
           for (let i = 0; i < rows.length; i++) {
@@ -289,7 +312,7 @@ export default function AdvancedStormwaterCalculator() {
             }
           }
           if (headerRowIndex === -1 || aepColumns.length === 0) {
-            setCsvError('Could not find AEP header row.');
+            setCsvError('Could not find AEP header row. Please check the CSV format.');
             return;
           }
           const parsedData: IFDData[] = [];
@@ -302,8 +325,12 @@ export default function AdvancedStormwaterCalculator() {
             const intensities: Record<string, number> = {};
             let hasValid = false;
             for (let j = 0; j < aepColumns.length; j++) {
-              const val = parseFloat(row[j + 2]);
+              let val = parseFloat(row[j + 2]);
               if (!isNaN(val) && val > 0) {
+                if (isDepth) {
+                  // Convert Depth (mm) to Intensity (mm/h)
+                  val = (val * 60) / durationInMinutes;
+                }
                 intensities[aepColumns[j]] = val;
                 hasValid = true;
               }
@@ -314,23 +341,114 @@ export default function AdvancedStormwaterCalculator() {
           }
           parsedData.sort((a, b) => a.duration - b.duration);
           setCsvData(parsedData);
-          // Reset previous results when new CSV loaded
           setAllResults([]);
           setWorstDuration(null);
           setDetentionVolume(null);
           setShowAllHyetographs(true);
+
+          if (isDepth) {
+            toast.success('Successfully loaded and auto-converted Depth (mm) to Intensity (mm/h).');
+          }
         } catch {
-          setCsvError('Error processing CSV file.');
+          setCsvError('Error processing CSV data.');
         }
       },
-      error: (err) => setCsvError(`Error reading file: ${err.message}`)
+      error: (err: any) => setCsvError(`Error reading CSV: ${err.message}`)
     });
+  };
+
+  const parseIFDFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      if (text) {
+        parseIFDText(text, file.name);
+      }
+    };
+    reader.onerror = () => {
+      setCsvError('Error reading file.');
+    };
+    reader.readAsText(file);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     parseIFDFile(file);
+  };
+
+  /* ---------- Actions: Auto-Fetch & Geocoding ---------- */
+  const handleGeocode = async () => {
+    if (!addressSearchQuery.trim()) {
+      toast.error('Please enter an address to search.');
+      return;
+    }
+    setIsGeocoding(true);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(addressSearchQuery)}`,
+        {
+          headers: {
+            'User-Agent': 'Quality-Pumps-Stormwater-Calculator/1.0'
+          }
+        }
+      );
+      if (!response.ok) throw new Error('Geocoding service unavailable.');
+      const data = await response.json();
+      if (data && data.length > 0) {
+        const firstMatch = data[0];
+        // OpenStreetMap returns lat/lon as strings
+        setInputLatitude(parseFloat(firstMatch.lat).toFixed(6));
+        setInputLongitude(parseFloat(firstMatch.lon).toFixed(6));
+        toast.success(`Located: ${firstMatch.display_name.split(',').slice(0, 3).join(',')}`);
+      } else {
+        toast.error('No matching coordinates found for the address. Please enter coordinates manually.');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Geocoding failed.');
+    } finally {
+      setIsGeocoding(false);
+    }
+  };
+
+  const handleFetchBOMIFD = async () => {
+    if (!inputLatitude || !inputLongitude) {
+      toast.error('Please specify both latitude and longitude.');
+      return;
+    }
+    const lat = parseFloat(inputLatitude);
+    const lon = parseFloat(inputLongitude);
+    if (isNaN(lat) || isNaN(lon)) {
+      toast.error('Latitude and longitude must be valid numbers.');
+      return;
+    }
+
+    setIsFetchingIFD(true);
+    setLoadingProgress('Connecting to Bureau of Meteorology...');
+    setCsvError('');
+
+    try {
+      const response = await fetch(
+        `/api/stormwater/fetch-ifd?latitude=${lat}&longitude=${lon}&label=${encodeURIComponent(addressSearchQuery || 'Site')}`
+      );
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `BOM fetch failed (status ${response.status})`);
+      }
+
+      setLoadingProgress('Downloading CSV data...');
+      const csvText = await response.text();
+      
+      setLoadingProgress('Parsing rainfall data...');
+      parseIFDText(csvText, `BOM_IFD_${lat.toFixed(4)}_${lon.toFixed(4)}.csv`);
+      toast.success('BOM Intensity-Frequency-Duration data loaded successfully.');
+    } catch (err: any) {
+      setCsvError(err.message || 'Failed to fetch BOM IFD data.');
+      toast.error(err.message || 'Failed to fetch BOM IFD data.');
+    } finally {
+      setIsFetchingIFD(false);
+      setLoadingProgress('');
+    }
   };
 
   /* ---------- Interpolation ---------- */
@@ -719,100 +837,256 @@ export default function AdvancedStormwaterCalculator() {
         <h1 className='text-2xl font-bold'>Stormwater Hyetograph</h1>
 
         {/* Step 1: IFD Data */}
-        <Card>
+        <Card className="shadow-md">
           <CardHeader>
             <CardTitle className='flex items-center gap-2 text-lg'>
-              <span className='bg-primary text-primary-foreground flex h-6 w-6 items-center justify-center rounded-full text-sm'>1</span>
+              <span className='bg-primary text-primary-foreground flex h-6 w-6 items-center justify-center rounded-full text-sm font-semibold'>1</span>
               IFD Data
             </CardTitle>
           </CardHeader>
           <CardContent className='space-y-4'>
-            <div className='flex flex-wrap gap-4'>
-              <div className='flex-1 space-y-2'>
-                <Label>Upload IFD CSV</Label>
-                <Input type='file' accept='.csv' onChange={handleFileUpload} />
-                {csvError && (
-                  <p className='text-sm text-red-500'>{csvError}</p>
-                )}
-                {csvData && (
-                  <div className='flex items-center gap-2 text-sm text-green-700'>
-                    <CheckCircle className='h-4 w-4' />
-                    {csvFileName} ({csvData.length} points)
+            {/* Tab Selector */}
+            <div className='flex border-b border-muted mb-4'>
+              <button
+                type='button'
+                onClick={() => setIfdSourceMode('auto')}
+                className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  ifdSourceMode === 'auto'
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Globe className='h-4 w-4' />
+                Auto-Fetch from BOM
+              </button>
+              <button
+                type='button'
+                onClick={() => setIfdSourceMode('upload')}
+                className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  ifdSourceMode === 'upload'
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Upload className='h-4 w-4' />
+                Manual CSV Upload
+              </button>
+            </div>
+
+            {ifdSourceMode === 'auto' ? (
+              <div className='space-y-4'>
+                {/* Geocoding address search */}
+                <div className='space-y-2'>
+                  <Label htmlFor='addressSearch'>Site Address / Location</Label>
+                  <div className='flex gap-2'>
+                    <div className='relative flex-1'>
+                      <Input
+                        id='addressSearch'
+                        type='text'
+                        value={addressSearchQuery}
+                        onChange={(e) => setAddressSearchQuery(e.target.value)}
+                        placeholder='e.g. 100 Adelaide St, Brisbane QLD'
+                        className='pr-8'
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleGeocode();
+                          }
+                        }}
+                      />
+                      <Search className='absolute right-2.5 top-2.5 h-4 w-4 text-muted-foreground' />
+                    </div>
+                    <Button
+                      variant='secondary'
+                      onClick={handleGeocode}
+                      disabled={isGeocoding || isFetchingIFD}
+                      className='cursor-pointer flex items-center gap-1 shrink-0'
+                    >
+                      {isGeocoding ? (
+                        <Loader2 className='h-4 w-4 animate-spin' />
+                      ) : (
+                        <MapPin className='h-4 w-4' />
+                      )}
+                      Locate
+                    </Button>
+                  </div>
+                  <p className='text-xs text-muted-foreground'>
+                    Search by address or place name to resolve geographic coordinates.
+                  </p>
+                </div>
+
+                {/* Coordinate Fields */}
+                <div className='grid grid-cols-2 gap-4'>
+                  <div className='space-y-2'>
+                    <Label htmlFor='latitude'>Latitude (S)</Label>
+                    <Input
+                      id='latitude'
+                      type='text'
+                      value={inputLatitude}
+                      onChange={(e) => setInputLatitude(e.target.value)}
+                      placeholder='e.g. -27.4678'
+                    />
+                  </div>
+                  <div className='space-y-2'>
+                    <Label htmlFor='longitude'>Longitude (E)</Label>
+                    <Input
+                      id='longitude'
+                      type='text'
+                      value={inputLongitude}
+                      onChange={(e) => setInputLongitude(e.target.value)}
+                      placeholder='e.g. 153.0281'
+                    />
+                  </div>
+                </div>
+                <p className='text-xs text-muted-foreground'>
+                  BOM calculations require decimal degree coordinates within Australia (S latitude is negative, E longitude is positive).
+                </p>
+
+                {/* Actions */}
+                <div className='flex flex-wrap items-center gap-3 pt-2'>
+                  <Button
+                    onClick={handleFetchBOMIFD}
+                    disabled={isFetchingIFD || isGeocoding || !inputLatitude || !inputLongitude}
+                    className='cursor-pointer flex items-center gap-1.5'
+                  >
+                    {isFetchingIFD ? (
+                      <>
+                        <Loader2 className='h-4 w-4 animate-spin' />
+                        {loadingProgress || 'Fetching...'}
+                      </>
+                    ) : (
+                      <>
+                        <CloudRain className='h-4 w-4' />
+                        Fetch Stormwater IFD Data
+                      </>
+                    )}
+                  </Button>
+
+                  {inputLatitude && inputLongitude && (
+                    <a
+                      href={`https://www.bom.gov.au/water/designRainfalls/revised-ifd/?year=2016&coordinate_type=dd&latitude=${inputLatitude}&longitude=${inputLongitude}&sdmin=true&sdhr=true&sdday=true&user_label=${encodeURIComponent(addressSearchQuery || 'Site')}`}
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      className='inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors py-2 px-3 rounded-md bg-sky-50 hover:bg-sky-100 font-medium'
+                    >
+                      Verify on BOM Website
+                      <ExternalLink className='h-3.5 w-3.5' />
+                    </a>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className='space-y-4'>
+                <div className='flex flex-wrap gap-4'>
+                  <div className='flex-1 space-y-2'>
+                    <Label htmlFor='csvFileInput'>Upload IFD CSV</Label>
+                    <Input
+                      id='csvFileInput'
+                      type='file'
+                      accept='.csv'
+                      onChange={handleFileUpload}
+                    />
+                  </div>
+                  <div className='flex items-end'>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={() => setShowBomHelp(!showBomHelp)}
+                      className='cursor-pointer flex items-center gap-1'
+                    >
+                      <Info className='h-4 w-4' />
+                      How to get IFD data
+                    </Button>
+                  </div>
+                </div>
+
+                {showBomHelp && (
+                  <div className='rounded border border-sky-200 bg-sky-50 p-4 text-sm'>
+                    <strong className='text-sky-800 font-semibold'>How to Download CSV from the BOM Website:</strong>
+                    <ol className='mt-2 list-inside list-decimal space-y-1.5 text-sky-700'>
+                      <li>
+                        Go to:{' '}
+                        <a
+                          href='http://www.bom.gov.au/water/designRainfalls/revised-ifd/'
+                          target='_blank'
+                          rel='noreferrer'
+                          className='text-blue-600 underline font-medium'
+                        >
+                          BOM IFD Calculator
+                        </a>
+                      </li>
+                      <li>On the left sidebar, click <strong>Select from Map</strong> under the Search.</li>
+                      <li>Click anywhere on the map to choose your location/region.</li>
+                      <li>Once selected, the coordinates will populate in the fields.</li>
+                      <li>Click <strong>Submit</strong> on the left panel to generate results.</li>
+                      <li>In the right-hand results table, change the unit from <strong>mm</strong> to <strong>mm/hr</strong>.</li>
+                      <li>Click the <strong>CSV download icon</strong> at the top right of the table to download your data.</li>
+                    </ol>
+                    <div className='mt-3'>
+                      <a
+                        href='/sample-idf.csv'
+                        download='sample-idf.csv'
+                        className='inline-flex items-center gap-1 text-blue-600 underline font-medium'
+                      >
+                        <Download className='h-3.5 w-3.5' />
+                        Download Sample CSV
+                      </a>
+                    </div>
+                    <div className='mt-4 rounded border border-amber-200 bg-amber-50 p-3'>
+                      <strong className='text-amber-800 font-semibold'>⚠️ Model Limitations</strong>
+                      <ul className='mt-1 list-inside list-disc space-y-1.5 text-amber-700'>
+                        <li>
+                          The hyetograph method calculates a <strong>theoretical maximum</strong> detention volume.
+                        </li>
+                        <li>
+                          It does <strong>not</strong> model soil absorption, evaporation, or saturation.
+                        </li>
+                        <li>
+                          For small catchments &lt; 2000m², the{' '}
+                          <button
+                            type='button'
+                            className='text-blue-600 underline font-medium cursor-pointer bg-transparent border-0 p-0 hover:text-blue-800'
+                            onClick={() => router.push('/dashboard/rain-water-run-off-basic')}
+                          >
+                            AS/NZS3500.3 method
+                          </button>{' '}
+                          should be used.
+                        </li>
+                        <li>
+                          Results for multi-day storms (24h+) may <strong>overestimate</strong> real detention needs.
+                        </li>
+                        <li>
+                          For larger sites or complex soil conditions, consult a hydraulic engineer.
+                        </li>
+                      </ul>
+                    </div>
                   </div>
                 )}
               </div>
-              <div className='flex items-end'>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() => setShowBomHelp(!showBomHelp)}
-                  className='cursor-pointer'
-                >
-                  <Info className='mr-1 h-4 w-4' />
-                  How to get IFD data
-                </Button>
-              </div>
-            </div>
+            )}
 
-            {showBomHelp && (
-              <div className='rounded border border-sky-200 bg-sky-50 p-4 text-sm'>
-                <strong className='text-sky-800'>How to Download CSV from the BOM Website:</strong>
-                <ol className='mt-2 list-inside list-decimal space-y-1 text-sky-700'>
-                  <li>
-                    Go to:{' '}
-                    <a
-                      href='http://www.bom.gov.au/water/designRainfalls/revised-ifd/'
-                      target='_blank'
-                      rel='noreferrer'
-                      className='text-blue-600 underline'
-                    >
-                      BOM IFD Calculator
-                    </a>
-                  </li>
-                  <li>On the left sidebar, click <strong>Select from Map</strong> under the Search.</li>
-                  <li>Click anywhere on the map to choose your location/region.</li>
-                  <li>Once selected, the coordinates will populate in the fields.</li>
-                  <li>Click <strong>Submit</strong> on the left panel to generate results.</li>
-                  <li>In the right-hand results table, change the unit from <strong>mm</strong> to <strong>mm/hr</strong>.</li>
-                  <li>Click the <strong>CSV download icon</strong> at the top right of the table to download your data.</li>
-                </ol>
-                <div className='mt-3'>
-                  <a
-                    href='/sample-idf.csv'
-                    download='sample-idf.csv'
-                    className='inline-flex items-center gap-1 text-blue-600 underline'
-                  >
-                    <Download className='h-3 w-3' />
-                    Download Sample CSV
-                  </a>
+            {csvError && (
+              <p className='text-sm text-red-500 font-medium bg-red-50 border border-red-100 p-2.5 rounded-md mt-2'>{csvError}</p>
+            )}
+
+            {csvData && (
+              <div className='flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-100 p-3 rounded-md mt-2'>
+                <CheckCircle className='h-4 w-4 shrink-0 text-green-600' />
+                <div className='flex-1 min-w-0'>
+                  <p className='font-semibold'>IFD Data Loaded Successfully</p>
+                  <p className='text-xs opacity-90 truncate'>{csvFileName} ({csvData.length} duration points)</p>
                 </div>
-                <div className='mt-4 rounded border border-amber-200 bg-amber-50 p-3'>
-                  <strong className='text-amber-800'>⚠️ Model Limitations</strong>
-                  <ul className='mt-1 list-inside list-disc space-y-1 text-amber-700'>
-                    <li>
-                      The hyetograph method calculates a <strong>theoretical maximum</strong> detention volume.
-                    </li>
-                    <li>
-                      It does <strong>not</strong> model soil absorption, evaporation, or saturation.
-                    </li>
-                    <li>
-                      For small catchments &lt; 2000m², the{' '}
-                      <button
-                        className='text-blue-600 underline font-medium cursor-pointer bg-transparent border-0 p-0 hover:text-blue-800'
-                        onClick={() => router.push('/dashboard/rain-water-run-off-basic')}
-                      >
-                        AS/NZS3500.3 method
-                      </button>{' '}
-                      should be used.
-                    </li>
-                    <li>
-                      Results for multi-day storms (24h+) may <strong>overestimate</strong> real detention needs.
-                    </li>
-                    <li>
-                      For larger sites or complex soil conditions, consult a hydraulic engineer.
-                    </li>
-                  </ul>
-                </div>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  onClick={() => {
+                    setCsvData(null);
+                    setCsvFileName('');
+                  }}
+                  className='h-7 hover:bg-green-100 text-green-800 cursor-pointer'
+                >
+                  Clear
+                </Button>
               </div>
             )}
           </CardContent>
