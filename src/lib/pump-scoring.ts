@@ -612,7 +612,7 @@ export function aggregateAndMode(
   const scores = metrics.map((m) => m.score);
   const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
   const worst = Math.max(...scores);
-  const finalScore = avg + worst * 0.35;
+  const finalScore = (avg + worst * 0.35) / 1.35;
 
   return { finalScore, isHidden: false };
 }
