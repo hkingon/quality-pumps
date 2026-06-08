@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import RunoffInputs from './RunoffInputs';
 import RainfallSelector from './RainfallSelector';
 import RunoffResults from './RunoffResults';
 
-// Import your genuine data interfaces
 export interface AEPValues {
   '63.2%': number;
   '50%': number;
@@ -34,188 +33,201 @@ export interface LocationData {
 
 export type LocationsData = LocationData[];
 export type AEPType = keyof AEPValues;
-export type CatchmentType =
-  | 'Box Gutters'
-  | 'Eaves Gutters'
-  | 'Impervious'
-  | 'Pervious'
-  | 'No Damage'
-  | 'Custom';
-
-// Define the mapping of catchment types to default AEP types
-// export const catchmentTypeToAEP: Record<Exclude<CatchmentType, 'Custom'>, AEPType> = {
-//   'Residential': '20%',      // 5-year ARI (1/0.2 = 5)
-//   'Commercial': '10%',       // 10-year ARI (1/0.1 = 10)
-//   'Industrial': '5%',        // 20-year ARI (1/0.05 = 20)
-//   'Critical Infrastructure': '1%'  // 100-year ARI (1/0.01 = 100)
-// };
-
-export const catchmentTypeToDefaults: Record<
-  Exclude<CatchmentType, 'Custom'>,
-  { aep: AEPType; runoffCoefficient: number }
-> = {
-  'Box Gutters': { aep: '1%', runoffCoefficient: 1.0 },
-  'Eaves Gutters': { aep: '5%', runoffCoefficient: 1.0 },
-  Impervious: { aep: '10%', runoffCoefficient: 0.9 },
-  Pervious: { aep: '10%', runoffCoefficient: 0.9 },
-  'No Damage': { aep: '50%', runoffCoefficient: 0.9 }
-};
-
-// Interface for catchment areas
-export interface CatchmentArea {
-  id: number;
-  area: number;
-  runoffCoefficient: number;
-  catchmentType: CatchmentType;
-  aepType: AEPType | null;
-  customIntensity: number | null; // For overriding the rainfall intensity
-}
 
 interface Props {
-  locationsData: LocationsData; // This will be passed as a prop from your parent component
+  locationsData: LocationsData;
 }
 
 export default function RainwaterCalculator({ locationsData }: Props) {
-  const [selectedCity, setSelectedCity] = useState<string>('');
-  const [selectedDuration, setSelectedDuration] = useState<string>('5'); // Default to 5 minutes
-  const [selectedAEP, setSelectedAEP] = useState<AEPType>('10%');
+  const [selectedCity, setSelectedCity] = useState<string>('Adelaide');
+  const [selectedDuration, setSelectedDuration] = useState<string>('2 hour');
+  
+  // Input states matching the AS/NZS 3500.3 stormwater calculator
+  const [catchmentArea, setCatchmentArea] = useState<number>(200);
+  const [runoffCoeff, setRunoffCoeff] = useState<number>(1.00);
+  const [rainMode, setRainMode] = useState<'depth' | 'intensity'>('depth');
+  const [rainDepth, setRainDepth] = useState<number>(60);
+  const [rainIntensity, setRainIntensity] = useState<number>(30);
+  const [stormDuration, setStormDuration] = useState<number>(120);
+  const [pumpWindow, setPumpWindow] = useState<number>(30);
+  
+  const [storageMethod, setStorageMethod] = useState<'minimum' | 'manual' | 'round'>('minimum');
+  const [manualStorage, setManualStorage] = useState<number>(3);
+  const [wellDiameter, setWellDiameter] = useState<number>(1.5);
+  const [drawdown, setDrawdown] = useState<number>(1.7);
+  
+  const [selectedPumpFlow, setSelectedPumpFlow] = useState<number>(10);
+  const [minPumpFlow, setMinPumpFlow] = useState<number>(10);
+  const [allowableDischarge, setAllowableDischarge] = useState<number | ''>('');
+
   const resultsRef = useRef<HTMLDivElement>(null);
 
-  // Initialize catchment areas with new fields
-  const [catchmentAreas, setCatchmentAreas] = useState<CatchmentArea[]>([
-    {
-      id: 1,
-      area: 0,
-      runoffCoefficient: 0.9,
-      catchmentType: 'Impervious',
-      aepType: '10%',
-      customIntensity: null
+  // Sync city/duration selection to rainfall inputs
+  useEffect(() => {
+    if (selectedCity && selectedCity !== 'Custom / Manual') {
+      const cityData = locationsData.find((city) => city.label === selectedCity);
+      if (cityData && cityData.data[selectedDuration]) {
+        const durationData = cityData.data[selectedDuration];
+        const intensity = durationData.aepValues['10%']; // 10 year ARI
+        const durationMin = durationData.durationInMin;
+
+        setStormDuration(durationMin);
+        setRainIntensity(intensity);
+        setRainDepth(Number((intensity * (durationMin / 60)).toFixed(1)));
+      }
     }
+  }, [selectedCity, selectedDuration, locationsData]);
+
+  // Main calculation engine
+  const results = useMemo(() => {
+    const A = Math.max(0, catchmentArea);
+    const C = Math.max(0, Math.min(1, runoffCoeff));
+    const duration = Math.max(1, stormDuration);
+    const windowMin = Math.max(1, pumpWindow);
+    const pumpFlow = Math.max(0, selectedPumpFlow);
+    const minPump = Math.max(0, minPumpFlow);
+    const hasAllowable = typeof allowableDischarge === 'number' && allowableDischarge > 0;
+    const limit = hasAllowable ? (allowableDischarge as number) : 0;
+
+    let computedDepth = rainDepth;
+    let computedIntensity = rainIntensity;
+
+    if (rainMode === 'intensity') {
+      computedDepth = rainIntensity * (duration / 60);
+    } else {
+      computedIntensity = rainDepth / (duration / 60);
+    }
+
+    const runoffVolume = (A * C * computedDepth) / 1000;
+    const minimumStorage = Math.max(A * 0.01, 3);
+    
+    let activeStorage = minimumStorage;
+    if (storageMethod === 'manual') {
+      activeStorage = Math.max(0, manualStorage);
+    } else if (storageMethod === 'round') {
+      const diameter = Math.max(0, wellDiameter);
+      const activeDrawdown = Math.max(0, drawdown);
+      activeStorage = (Math.PI * Math.pow(diameter, 2) / 4) * activeDrawdown;
+    }
+
+    const pumpWindowVolume = (pumpFlow * windowMin * 60) / 1000;
+    const combinedStorage = activeStorage + pumpWindowVolume;
+
+    const requiredPumpForActiveStorage = Math.max(
+      0,
+      ((runoffVolume - activeStorage) * 1000) / (windowMin * 60)
+    );
+    const requiredPumpWithMinimumNote = Math.max(requiredPumpForActiveStorage, minPump);
+    const requiredStorageAtSelectedPump = Math.max(minimumStorage, runoffVolume - pumpWindowVolume);
+    const recommendedFlowWithMinimumStorage = Math.max(
+      minPump,
+      Math.max(0, ((runoffVolume - minimumStorage) * 1000) / (windowMin * 60))
+    );
+
+    const storagePass = combinedStorage + 1e-9 >= runoffVolume;
+    const wetWellMinPass = activeStorage + 1e-9 >= minimumStorage;
+    const areaWarn = A > 2000;
+    const pumpMinWarn = pumpFlow > 0 && pumpFlow + 1e-9 < minPump;
+    const allowableFail = hasAllowable && pumpFlow - 1e-9 > limit;
+    const recommendationAllowableFail = hasAllowable && recommendedFlowWithMinimumStorage - 1e-9 > limit;
+
+    return {
+      computedDepth,
+      computedIntensity,
+      runoffVolume,
+      minimumStorage,
+      activeStorage,
+      pumpWindowVolume,
+      combinedStorage,
+      requiredPumpWithMinimumNote,
+      requiredStorageAtSelectedPump,
+      recommendedFlowWithMinimumStorage,
+      storagePass,
+      wetWellMinPass,
+      areaWarn,
+      pumpMinWarn,
+      allowableFail,
+      recommendationAllowableFail,
+      hasAllowable,
+      limit,
+      A,
+      C,
+      duration,
+      windowMin,
+      pumpFlow,
+      minPump
+    };
+  }, [
+    catchmentArea,
+    runoffCoeff,
+    rainMode,
+    rainDepth,
+    rainIntensity,
+    stormDuration,
+    pumpWindow,
+    storageMethod,
+    manualStorage,
+    wellDiameter,
+    drawdown,
+    selectedPumpFlow,
+    minPumpFlow,
+    allowableDischarge
   ]);
 
-  // Results state
-  const [individualResults, setIndividualResults] = useState<
-    {
-      id: number;
-      area: number;
-      coefficient: number;
-      intensity: number;
-      runoff: number;
-      catchmentType: string;
-      aepType: string | null;
-    }[]
-  >([]);
-
-  const [designFlowRate, setDesignFlowRate] = useState(0);
-
-  // Get current city data
-  const getCurrentCityData = () => {
-    return locationsData.find((city) => city.label === selectedCity);
-  };
-
-  // Get available durations for selected city
-  const getAvailableDurations = () => {
-    const cityData = getCurrentCityData();
-    if (!cityData) return [];
-    return Object.keys(cityData.data).sort((a, b) => Number(a) - Number(b));
-  };
-
-  // Get AEP values for selected city and duration
-  const getCurrentAEPValues = () => {
-    const cityData = getCurrentCityData();
-    if (!cityData || !cityData.data[selectedDuration]) return null;
-    return cityData.data[selectedDuration].aepValues;
-  };
-
-  // Get rainfall intensity for given city, duration, and AEP
-  const getRainfallIntensity = (
-    cityLabel: string,
-    duration: string,
-    aep: AEPType
-  ) => {
-    const cityData = locationsData.find((city) => city.label === cityLabel);
-    if (!cityData || !cityData.data[duration]) return 0;
-    return cityData.data[duration].aepValues[aep];
-  };
-
   const handleCalculate = () => {
-    const results = catchmentAreas.map((ca) => {
-      // Determine the rainfall intensity to use
-      let intensity = 0;
-
-      if (ca.customIntensity !== null) {
-        // Use custom intensity if provided
-        intensity = ca.customIntensity;
-      } else if (selectedCity && ca.aepType) {
-        // Use the selected AEP's intensity for the city and duration
-        intensity = getRainfallIntensity(
-          selectedCity,
-          selectedDuration,
-          ca.aepType
-        );
-      } else {
-        // Fallback
-        intensity = 0;
-      }
-
-      const runoff = (ca.area * ca.runoffCoefficient * intensity) / 1000; // m³/hr
-
-      return {
-        id: ca.id,
-        area: ca.area,
-        coefficient: ca.runoffCoefficient,
-        intensity,
-        runoff,
-        catchmentType: ca.catchmentType,
-        aepType: ca.aepType
-      };
-    });
-
-    const totalRunoff = results.reduce((sum, r) => sum + r.runoff, 0);
-    setIndividualResults(results);
-    setDesignFlowRate(totalRunoff); // m³/hr
-
-    // Scroll to results after a slight delay to ensure state has updated
-    setTimeout(() => {
-      if (resultsRef.current) {
-        resultsRef.current.scrollIntoView({ behavior: 'smooth' });
-      }
-    }, 100);
+    // Scroll to results
+    if (resultsRef.current) {
+      resultsRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   };
 
   return (
-    <div className='mx-auto w-full max-w-5xl space-y-4 p-0'>
-      <div className='relative flex flex-col lg:flex-row lg:items-start lg:gap-4'>
-        <div
-          className='relative order-1 mb-4 flex-1 lg:sticky lg:top-4 lg:order-2'
-          ref={resultsRef}
-        >
-          <RunoffResults
-            designFlowRate={designFlowRate}
-            individualResults={individualResults}
-          />
-        </div>
-
-        <div className='order-2 mb-32 flex-1 space-y-4 lg:order-1 lg:mb-16'>
+    <div className='mx-auto w-full max-w-7xl space-y-4 p-0'>
+      <div className='grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start'>
+        <div className='space-y-4 lg:col-span-1'>
           <RainfallSelector
             locationsData={locationsData}
             selectedCity={selectedCity}
             setSelectedCity={setSelectedCity}
             selectedDuration={selectedDuration}
             setSelectedDuration={setSelectedDuration}
-            selectedAEP={selectedAEP}
-            setSelectedAEP={setSelectedAEP}
-            getCurrentAEPValues={getCurrentAEPValues}
-            getAvailableDurations={getAvailableDurations}
           />
           <RunoffInputs
-            catchmentAreas={catchmentAreas}
-            setCatchmentAreas={setCatchmentAreas}
+            setSelectedCity={setSelectedCity}
+            catchmentArea={catchmentArea}
+            setCatchmentArea={setCatchmentArea}
+            runoffCoeff={runoffCoeff}
+            setRunoffCoeff={setRunoffCoeff}
+            rainMode={rainMode}
+            setRainMode={setRainMode}
+            rainDepth={rainDepth}
+            setRainDepth={setRainDepth}
+            rainIntensity={rainIntensity}
+            setRainIntensity={setRainIntensity}
+            stormDuration={stormDuration}
+            setStormDuration={setStormDuration}
+            pumpWindow={pumpWindow}
+            setPumpWindow={setPumpWindow}
+            storageMethod={storageMethod}
+            setStorageMethod={setStorageMethod}
+            manualStorage={manualStorage}
+            setManualStorage={setManualStorage}
+            wellDiameter={wellDiameter}
+            setWellDiameter={setWellDiameter}
+            drawdown={drawdown}
+            setDrawdown={setDrawdown}
+            selectedPumpFlow={selectedPumpFlow}
+            setSelectedPumpFlow={setSelectedPumpFlow}
+            minPumpFlow={minPumpFlow}
+            setMinPumpFlow={setMinPumpFlow}
+            allowableDischarge={allowableDischarge}
+            setAllowableDischarge={setAllowableDischarge}
             handleCalculate={handleCalculate}
-            selectedCity={selectedCity}
-            selectedDuration={selectedDuration}
-            getRainfallIntensity={getRainfallIntensity}
           />
+        </div>
+
+        <div className='lg:col-span-2' ref={resultsRef}>
+          <RunoffResults results={results} />
         </div>
       </div>
     </div>
