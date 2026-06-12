@@ -25,7 +25,8 @@ import {
   Zap,
   Gauge,
   Waves,
-  CloudRain
+  CloudRain,
+  Scan
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 
@@ -161,7 +162,9 @@ export default function DashboardPage() {
     );
   }
 
-  const tools = [
+  const isAdmin = user?.user_metadata?.role === 'admin';
+
+  const displayedTools = [
     {
       title: 'Pump Curve Generator',
       description: 'Visualize pump and system curves, and manage saved data',
@@ -196,7 +199,20 @@ export default function DashboardPage() {
       route: '/dashboard/rain-water-run-off-advanced',
       color: 'bg-purple-500',
       featured: true
-    }
+    },
+    ...(isAdmin
+      ? [
+          {
+            title: 'Pump Curve Digitizer',
+            description:
+              'Extract pump performance curves from images or PDF documents using AI',
+            icon: Scan,
+            route: '/dashboard/pump-curve-digitizer',
+            color: 'bg-indigo-500',
+            featured: false
+          }
+        ]
+      : [])
   ];
 
   return (
@@ -280,7 +296,7 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
-                  {tools.map((tool, index) => {
+                  {displayedTools.map((tool, index) => {
                     const IconComponent = tool.icon;
                     return (
                       <div

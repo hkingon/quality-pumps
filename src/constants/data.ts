@@ -58,6 +58,13 @@ export const navItems: NavItem[] = [
         icon: 'pipe',
         shortcut: ['p', 'w']
       },
+      {
+        title: 'Pump Curve Digitizer',
+        url: '/dashboard/pump-curve-digitizer',
+        icon: 'digitizer',
+        shortcut: ['p', 'd'],
+        isAdminOnly: true
+      },
     ]
   }
 ];

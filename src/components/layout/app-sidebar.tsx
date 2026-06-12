@@ -61,6 +61,7 @@ export default function AppSidebar() {
   const pathname = usePathname();
   const { isOpen } = useMediaQuery();
   const { user, profile, signOut } = useAuth();
+  const isAdmin = user?.user_metadata?.role === 'admin';
   const router = useRouter();
 
   const activeTenant = tenants[0];
@@ -102,8 +103,10 @@ export default function AppSidebar() {
           <SidebarGroupLabel>Overview</SidebarGroupLabel>
           <SidebarMenu>
             {navItems.map((item) => {
+              if (item.isAdminOnly && !isAdmin) return null;
+              const filteredItems = item.items?.filter(subItem => !subItem.isAdminOnly || isAdmin) || [];
               const Icon = item.icon ? Icons[item.icon] : Icons.logo;
-              return item?.items && item?.items?.length > 0 ? (
+              return filteredItems.length > 0 ? (
                 !isOpen ? (
                   <DropdownMenu key={item.title}>
                     <DropdownMenuTrigger asChild>
@@ -119,7 +122,7 @@ export default function AppSidebar() {
                       </SidebarMenuItem>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent side='right' align='start'>
-                      {item.items.map((subItem) => {
+                      {filteredItems.map((subItem) => {
                         const SubIcon = subItem.icon
                           ? Icons[subItem.icon]
                           : Icons.logo;
@@ -162,7 +165,7 @@ export default function AppSidebar() {
                       </CollapsibleTrigger>
                       <CollapsibleContent>
                         <SidebarMenuSub>
-                          {item.items?.map((subItem) => {
+                          {filteredItems.map((subItem) => {
                             const SubIcon = subItem.icon
                               ? Icons[subItem.icon]
                               : Icons.logo;
@@ -186,18 +189,20 @@ export default function AppSidebar() {
                   </Collapsible>
                 )
               ) : (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    tooltip={item.title}
-                    isActive={pathname === item.url}
-                  >
-                    <Link href={item.url}>
-                      <Icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                item.url !== '#' && (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      tooltip={item.title}
+                      isActive={pathname === item.url}
+                    >
+                      <Link href={item.url}>
+                        <Icon />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )
               );
             })}
           </SidebarMenu>

@@ -30,7 +30,8 @@ import {
   IconUserX,
   IconX,
   IconLayoutKanban,
-  IconBrandGithub
+  IconBrandGithub,
+  IconScan
 } from '@tabler/icons-react';
 import { CloudRain, CloudRainWind, Gauge, LucideArrowDownWideNarrow, Wrench } from 'lucide-react';
 
@@ -83,4 +84,5 @@ export const Icons = {
   rwrob: CloudRain,
   rwroa: CloudRainWind,
   pipe: PipeIcon,
+  digitizer: IconScan,
 };
