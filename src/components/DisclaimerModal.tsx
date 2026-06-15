@@ -13,17 +13,17 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { AlertTriangle } from 'lucide-react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { supabase } from '@/lib/supabase/client';
 
 interface DisclaimerModalProps {
   userId: string | undefined;
+  email?: string | undefined;
 }
 
-export function DisclaimerModal({ userId }: DisclaimerModalProps) {
+export function DisclaimerModal({ userId, email }: DisclaimerModalProps) {
   const [open, setOpen] = useState(false);
   const [hasAgreed, setHasAgreed] = useState(false);
   const [loading, setLoading] = useState(true);
-  const supabase = createClientComponentClient();
 
   useEffect(() => {
     if (!userId) return;
@@ -38,7 +38,9 @@ export function DisclaimerModal({ userId }: DisclaimerModalProps) {
           .single();
 
         if (error) {
-          console.error('Error fetching profile:', error);
+          if (error.code !== 'PGRST116') {
+            console.error('Error fetching profile:', error);
+          }
           setOpen(true);
           setLoading(false);
           return;
@@ -69,22 +71,23 @@ export function DisclaimerModal({ userId }: DisclaimerModalProps) {
     };
 
     checkDisclaimer();
-  }, [userId, supabase]);
+  }, [userId]);
 
   const handleAgree = async () => {
     if (!hasAgreed || !userId) return;
 
     try {
-      // Update the profile with the current timestamp
+      // Upsert the profile with the current timestamp
       const { error } = await supabase
         .from('profiles')
-        .update({
+        .upsert({
+          id: userId,
+          email: email || '',
           disclaimer_agreed_at: new Date().toISOString()
-        })
-        .eq('id', userId);
+        });
 
       if (error) {
-        console.error('Error updating profile:', error);
+        console.error('Error saving disclaimer agreement:', error);
         alert('Failed to save agreement. Please try again.');
         return;
       }

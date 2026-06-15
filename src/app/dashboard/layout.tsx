@@ -40,7 +40,7 @@ export default async function DashboardLayout({
   const defaultOpen = cookieStore.get('sidebar:state')?.value === 'true';
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
-      <DisclaimerModal userId={user?.id} />
+      <DisclaimerModal userId={user?.id} email={user?.email} />
       <AppSidebar />
       <SidebarInset>
         <Header />
