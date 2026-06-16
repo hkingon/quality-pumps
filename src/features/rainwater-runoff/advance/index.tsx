@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 /* Re-export for legacy sub-components */
@@ -226,6 +226,11 @@ export default function AdvancedStormwaterCalculator() {
   const [inputLongitude, setInputLongitude] = useState('');
   const [isFetchingIFD, setIsFetchingIFD] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState('');
+  
+  /* -- Address Autocomplete Suggestions -- */
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [isSearchingSuggestions, setIsSearchingSuggestions] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   /* -- All triangles -- */
   const [allResults, setAllResults] = useState<DurationResult[]>([]);
@@ -409,6 +414,47 @@ export default function AdvancedStormwaterCalculator() {
     } finally {
       setIsGeocoding(false);
     }
+  };
+  
+  // Address Autocomplete Suggestions from Nominatim
+  useEffect(() => {
+    if (!addressSearchQuery.trim() || addressSearchQuery.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+
+    const delayDebounce = setTimeout(async () => {
+      setIsSearchingSuggestions(true);
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(addressSearchQuery)}`,
+          {
+            headers: {
+              'User-Agent': 'Quality-Pumps-Stormwater-Calculator/1.0'
+            }
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setSuggestions(data || []);
+        }
+      } catch (err) {
+        console.error('Error fetching address suggestions:', err);
+      } finally {
+        setIsSearchingSuggestions(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(delayDebounce);
+  }, [addressSearchQuery]);
+
+  const handleSelectSuggestion = (item: any) => {
+    setAddressSearchQuery(item.display_name);
+    setInputLatitude(parseFloat(item.lat).toFixed(6));
+    setInputLongitude(parseFloat(item.lon).toFixed(6));
+    setSuggestions([]);
+    setShowSuggestions(false);
+    toast.success(`Coordinates updated for selected address.`);
   };
 
   const handleFetchBOMIFD = async () => {
@@ -884,7 +930,15 @@ export default function AdvancedStormwaterCalculator() {
                         id='addressSearch'
                         type='text'
                         value={addressSearchQuery}
-                        onChange={(e) => setAddressSearchQuery(e.target.value)}
+                        onChange={(e) => {
+                          setAddressSearchQuery(e.target.value);
+                          setShowSuggestions(true);
+                        }}
+                        onFocus={() => setShowSuggestions(true)}
+                        onBlur={() => {
+                          // Small timeout to allow clicking on a suggestion item
+                          setTimeout(() => setShowSuggestions(false), 250);
+                        }}
                         placeholder='e.g. 100 Adelaide St, Brisbane QLD'
                         className='pr-8'
                         onKeyDown={(e) => {
@@ -895,6 +949,30 @@ export default function AdvancedStormwaterCalculator() {
                         }}
                       />
                       <Search className='absolute right-2.5 top-2.5 h-4 w-4 text-muted-foreground' />
+
+                      {/* Suggestions Dropdown */}
+                      {showSuggestions && (suggestions.length > 0 || isSearchingSuggestions) && (
+                        <div className='absolute z-50 w-full mt-1 bg-popover text-popover-foreground border rounded-md shadow-lg max-h-60 overflow-y-auto'>
+                          {isSearchingSuggestions && suggestions.length === 0 ? (
+                            <div className='p-3 text-xs text-muted-foreground flex items-center gap-2'>
+                              <Loader2 className='h-3 w-3 animate-spin' />
+                              Searching addresses...
+                            </div>
+                          ) : (
+                            <ul className='py-1 divide-y divide-border/40'>
+                              {suggestions.map((item) => (
+                                <li
+                                  key={item.place_id}
+                                  onClick={() => handleSelectSuggestion(item)}
+                                  className='px-3 py-2 text-xs hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors text-left leading-normal break-words'
+                                >
+                                  {item.display_name}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <Button
                       variant='secondary'
