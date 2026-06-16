@@ -1,7 +1,67 @@
 import { convertFlow, convertHead, FlowUnit, HeadUnit } from '@/lib/units';
 import type { SavedPump, SystemCurveData } from '@/types';
 
-// --- Types ---
+// =============================================================================
+// Section 11 — Tunable constants (one config object)
+// =============================================================================
+
+export const SCORING_CONFIG = {
+  // Head margin penalty
+  HEAD_BAND_LOW: 1.04,
+  HEAD_BAND_HIGH: 1.15,
+  HEAD_LOW_SCALE: 0.04,
+  HEAD_LOW_FACTOR: 0.5,
+  HEAD_HIGH_SCALE: 0.30,
+
+  // Preferred Operating Range (POR)
+  POR_LOW: 0.70,
+  POR_HIGH: 1.20,
+  POR_SCALE: 0.20,
+
+  // Allowable Operating Range (AOR)
+  AOR_LOW: 0.50,
+  AOR_HIGH: 1.40,
+  AOR_SCALE: 0.10,
+
+  // Energy penalty cap
+  PE_CAP: 2.0,
+
+  // VFD speed deviation
+  SPEED_DEADBAND: 0.95,
+  SPEED_LOW_SCALE: 0.25,
+  SPEED_HIGH_SCALE: 0.10,
+
+  // Weights (must sum to 1.00)
+  W_H: 0.30,
+  W_R: 0.20,
+  W_A: 0.15,
+  W_E: 0.20,
+  W_V: 0.10,
+  W_C: 0.05,
+
+  // Efficiency estimate clamps
+  ETA_CLAMP_MIN: 0.25,
+  ETA_CLAMP_MAX: 0.85,
+  ETA_FLOOR_OFF_BEP: 0.05,
+
+  // Specific speed clamps
+  NQ_CLAMP_MIN: 8,
+  NQ_CLAMP_MAX: 150,
+
+  // AND mode worst-duty weighting
+  AND_WORST_WEIGHT: 0.35,
+
+  // Physics constants
+  RHO: 998.2, // kg/m³
+  G: 9.81,    // m/s²
+
+  // Default efficiency when nothing is available and we cannot estimate
+  DEFAULT_ETA: 0.65,
+};
+
+// =============================================================================
+// Types
+// =============================================================================
 
 export interface PumpCurvePoint {
   flow: number;
@@ -13,15 +73,21 @@ export interface DutyMetric {
   score: number;
   isHidden: boolean;
   canMeet: boolean;
+  // penalty values
   ph: number;
   pr: number;
-  pb: number;
+  pa: number;
   pe: number;
+  pv: number;
   pc: number;
   pAbs: number;
-  operatingPoint: { flow: number; head: number }; // pump units
+  // flags
+  outsideAor: boolean;
+  motorOverload: boolean;
+  // operating point in pump native units
+  operatingPoint: { flow: number; head: number };
   rh: number;
-  rq: number;
+  rqo: number; // operating-point flow ratio
 }
 
 export interface PumpScoringResult {
@@ -40,152 +106,301 @@ export interface PreliminaryDutyMetric {
   canMeet: boolean;
   ph: number;
   pr: number;
-  pb: number;
+  pa: number;
+  pv: number;
   pc: number;
   pAbs: number;
+  outsideAor: boolean;
+  motorOverload: boolean;
   operatingPoint: { flow: number; head: number };
   rh: number;
-  rq: number;
-  applyFlowPenalty: boolean;
+  rqo: number;
+  speedRatio: number;
 }
 
-// --- Constants ---
-
-const RHO = 998.2; // kg/m^3
-const G = 9.81; // m/s^2
-const DEFAULT_ETA = 0.65;
-
-// --- Line intersection (ported from discharge-curve-chart.tsx) ---
+// =============================================================================
+// Internal helpers
+// =============================================================================
 
 function findLineIntersection(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-  x3: number,
-  y3: number,
-  x4: number,
-  y4: number
+  x1: number, y1: number, x2: number, y2: number,
+  x3: number, y3: number, x4: number, y4: number
 ): { x: number; y: number } | null {
   const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
   if (Math.abs(denom) < 1e-10) return null;
-  const t =
-    ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
-  const u =
-    -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+  const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+  const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
   if (t >= -1e-6 && t <= 1.000001 && u >= -1e-6 && u <= 1.000001) {
     return { x: x1 + t * (x2 - x1), y: y1 + t * (y2 - y1) };
   }
   return null;
 }
 
-// --- Interpolate head at flow from pvsq (pump units) ---
-
+/** Interpolate head at a given flow from a sorted set of curve points.
+ *  Clamps to the nearest endpoint if flow is outside the stored range. */
 function interpolateHeadAtFlow(
   pvsq: { flow: number; head: number }[],
   targetFlow: number
 ): number {
   if (pvsq.length === 0) return 0;
-  if (pvsq.length === 1) return pvsq[0].head;
-
   const sorted = [...pvsq].sort((a, b) => a.flow - b.flow);
-  let lower = sorted[0];
-  let upper = sorted[sorted.length - 1];
+  if (targetFlow <= sorted[0].flow) return sorted[0].head;
+  if (targetFlow >= sorted[sorted.length - 1].flow) return sorted[sorted.length - 1].head;
 
   for (let i = 0; i < sorted.length - 1; i++) {
-    if (
-      sorted[i].flow <= targetFlow &&
-      sorted[i + 1].flow >= targetFlow
-    ) {
-      lower = sorted[i];
-      upper = sorted[i + 1];
-      break;
+    if (sorted[i].flow <= targetFlow && sorted[i + 1].flow >= targetFlow) {
+      const ratio = (targetFlow - sorted[i].flow) / (sorted[i + 1].flow - sorted[i].flow);
+      return sorted[i].head + ratio * (sorted[i + 1].head - sorted[i].head);
     }
   }
-
-  if (lower.flow === upper.flow) return lower.head;
-
-  const ratio =
-    (targetFlow - lower.flow) / (upper.flow - lower.flow);
-  return lower.head + ratio * (upper.head - lower.head);
+  return sorted[sorted.length - 1].head;
 }
 
-// --- Interpolate power at flow from motor power curve (pump units) ---
-
+/** Interpolate power (kW) at a given flow from motor power curve.
+ *  Clamps to nearest endpoint if outside range. */
 function interpolatePowerAtFlow(
   motorPower: { kw: number; flow: number }[] | undefined,
   targetFlow: number
 ): number | null {
   if (!motorPower || motorPower.length === 0) return null;
-
   const sorted = [...motorPower].sort((a, b) => a.flow - b.flow);
   if (targetFlow <= sorted[0].flow) return sorted[0].kw;
-  if (targetFlow >= sorted[sorted.length - 1].flow)
-    return sorted[sorted.length - 1].kw;
-
-  let lower = sorted[0];
-  let upper = sorted[sorted.length - 1];
+  if (targetFlow >= sorted[sorted.length - 1].flow) return sorted[sorted.length - 1].kw;
 
   for (let i = 0; i < sorted.length - 1; i++) {
-    if (
-      sorted[i].flow <= targetFlow &&
-      sorted[i + 1].flow >= targetFlow
-    ) {
-      lower = sorted[i];
-      upper = sorted[i + 1];
-      break;
+    if (sorted[i].flow <= targetFlow && sorted[i + 1].flow >= targetFlow) {
+      const ratio = (targetFlow - sorted[i].flow) / (sorted[i + 1].flow - sorted[i].flow);
+      return sorted[i].kw + ratio * (sorted[i + 1].kw - sorted[i].kw);
     }
   }
-
-  if (lower.flow === upper.flow) return lower.kw;
-
-  const ratio =
-    (targetFlow - lower.flow) / (upper.flow - lower.flow);
-  return lower.kw + ratio * (upper.kw - lower.kw);
+  return sorted[sorted.length - 1].kw;
 }
 
-// --- Calculate BEP in pump native units ---
+/** Interpolate efficiency at a given flow from the efficiency curve.
+ *  Clamps to nearest endpoint. Returns a value in [0,1]. */
+function interpolateEfficiencyAtFlow(
+  efficiency: { eff: string; flow: string }[] | undefined,
+  targetFlow: number
+): number | null {
+  if (!efficiency || efficiency.length === 0) return null;
+  const sorted = efficiency
+    .map(e => ({ flow: Number(e.flow), eff: Number(e.eff) }))
+    .sort((a, b) => a.flow - b.flow);
+  if (sorted.length === 0) return null;
 
-export function calculateBep(pump: SavedPump): { bepFlow: number; bepHead: number } {
-  let bepFlow = 0;
-  let bepHead = 0;
-
-  if (pump.manualBepFlow && pump.manualBepFlow > 0) {
-    bepFlow = pump.manualBepFlow;
-    bepHead = interpolateHeadAtFlow(pump.pvsq || [], bepFlow);
-    return { bepFlow, bepHead };
-  }
-
-  if (pump.pvsq && pump.pvsq.length > 0) {
-    let maxProduct = 0;
-    pump.pvsq.forEach((point) => {
-      const product = point.flow * point.head;
-      if (product > maxProduct) {
-        maxProduct = product;
-        bepFlow = point.flow;
-        bepHead = point.head;
-      }
-    });
+  let rawEta: number;
+  if (targetFlow <= sorted[0].flow) {
+    rawEta = sorted[0].eff;
+  } else if (targetFlow >= sorted[sorted.length - 1].flow) {
+    rawEta = sorted[sorted.length - 1].eff;
   } else {
-    const numPoints = 100;
-    let maxProduct = 0;
-    for (let i = 0; i <= numPoints; i++) {
-      const flow = (pump.maxFlow * i) / numPoints;
-      const head =
-        pump.maxHead * (1 - Math.pow(flow / pump.maxFlow, 2));
-      const product = flow * head;
-      if (product > maxProduct) {
-        maxProduct = product;
-        bepFlow = flow;
-        bepHead = head;
+    let lower = sorted[0], upper = sorted[sorted.length - 1];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      if (sorted[i].flow <= targetFlow && sorted[i + 1].flow >= targetFlow) {
+        lower = sorted[i];
+        upper = sorted[i + 1];
+        break;
       }
+    }
+    const ratio = lower.flow === upper.flow ? 0 : (targetFlow - lower.flow) / (upper.flow - lower.flow);
+    rawEta = lower.eff + ratio * (upper.eff - lower.eff);
+  }
+
+  // Normalise: stored as percent if > 1.5
+  if (rawEta > 1.5) rawEta /= 100;
+  if (rawEta > 0 && rawEta <= 1) return rawEta;
+  return null;
+}
+
+// =============================================================================
+// Section 2 — Speed ratio and affinity scaling
+// =============================================================================
+
+/** Get the speed ratio r = newSpeed / oldSpeed, or 1 if not VFD-adjusted. */
+function getSpeedRatio(pump: SavedPump): number {
+  const isVfd = pump.otherTraits?.includes('VFD Compatible');
+  if (!isVfd) return 1;
+  if (pump.oldSpeed && pump.oldSpeed > 0 && pump.newSpeed && pump.newSpeed > 0) {
+    return pump.newSpeed / pump.oldSpeed;
+  }
+  return 1;
+}
+
+/** Apply affinity laws to a pvsq curve, scaling flow×r, head×r². */
+function affinityScaleCurve(
+  pvsq: { flow: number; head: number }[],
+  r: number
+): { flow: number; head: number }[] {
+  if (r === 1) return pvsq;
+  return pvsq.map(p => ({ flow: p.flow * r, head: p.head * r * r }));
+}
+
+/** Generate a parabolic pump curve (100 points) for pumps with no pvsq data. */
+function generateParabolicCurve(
+  maxHead: number,
+  maxFlow: number,
+  r: number
+): { flow: number; head: number }[] {
+  const scaledMaxHead = maxHead * r * r;
+  const scaledMaxFlow = maxFlow * r;
+  const points: { flow: number; head: number }[] = [];
+  const num = 100;
+  for (let i = 0; i <= num; i++) {
+    const flow = (scaledMaxFlow * i) / num;
+    const head = scaledMaxHead * (1 - Math.pow(flow / scaledMaxFlow, 2));
+    points.push({ flow, head });
+  }
+  return points;
+}
+
+// =============================================================================
+// Section 3 — Parallel pump curve combination
+// =============================================================================
+
+/** Combine N identical pump curves in parallel: at each head, flow = N × single-pump flow. */
+function combineParallelCurves(
+  singlePumpCurve: { flow: number; head: number }[],
+  N: number
+): { flow: number; head: number }[] {
+  if (N <= 1) return singlePumpCurve;
+  return singlePumpCurve.map(p => ({ flow: p.flow * N, head: p.head }));
+}
+
+// =============================================================================
+// Section 4 — Capability gate
+// =============================================================================
+
+function getHeadAtDutyFlow(
+  activeCurve: { flow: number; head: number }[],
+  dutyFlow: number
+): number {
+  return interpolateHeadAtFlow(activeCurve, dutyFlow);
+}
+
+// =============================================================================
+// Section 5 — Efficiency and power data fallback order
+// =============================================================================
+
+/** Table 5-1: C constants by pump category */
+function getCConstant(pump: SavedPump, ratedRpm: number): number {
+  const classes = pump.pumpClass || [];
+  const config = pump.configuration || [];
+  const combined = [...classes, ...config];
+
+  // Borehole / Bore Pump
+  if (combined.some(c => c.toLowerCase().includes('borehole') || c.toLowerCase().includes('bore'))) {
+    return 128.79;
+  }
+
+  // Multistage
+  if (combined.some(c =>
+    c.toLowerCase().includes('multistage') ||
+    c.toLowerCase() === 'vertical turbine'
+  )) {
+    return 133.95;
+  }
+
+  // End suction / surface centrifugal
+  if (ratedRpm >= 2200) return 130.27;
+  return 128.07;
+}
+
+/** Table 5-2: derate factor — minimum if multiple apply */
+function getDerateFactors(pump: SavedPump): number {
+  const impeller = (pump.impellerType || '').toLowerCase();
+  const classes = (pump.pumpClass || []).map(c => c.toLowerCase());
+  const factors: number[] = [];
+
+  if (impeller.includes('vortex') || classes.some(c => c.includes('vortex'))) factors.push(0.65);
+  if (classes.some(c => c.includes('grinder'))) factors.push(0.60);
+  if (classes.some(c => c.includes('cutter'))) factors.push(0.80);
+  if (classes.some(c => c.includes('drainage') || c.includes('slurry'))) factors.push(0.85);
+  if (impeller.includes('open') && !impeller.includes('semi')) factors.push(0.88);
+  if (impeller.includes('semi-open') || impeller.includes('semi open')) factors.push(0.92);
+
+  return factors.length > 0 ? Math.min(...factors) : 1.0;
+}
+
+/** Estimate BEP efficiency using EU Regulation 547/2012 specific-speed formula. */
+function estimateEfficiencyFromSpecificSpeed(
+  pump: SavedPump,
+  qBepM3s: number,
+  hBepM: number
+): number {
+  // Step a: rated RPM
+  let n = pump.rpm || 0;
+  if (n <= 0) {
+    const poleMap: Record<number, number> = { 2: 2900, 4: 1450, 6: 960, 8: 730 };
+    n = (pump.poles && poleMap[pump.poles]) ? poleMap[pump.poles] : 2900;
+  }
+
+  // Step b: Specific speed (metric), clamped
+  let nq = n * Math.sqrt(qBepM3s) / Math.pow(hBepM, 0.75);
+  nq = Math.max(SCORING_CONFIG.NQ_CLAMP_MIN, Math.min(SCORING_CONFIG.NQ_CLAMP_MAX, nq));
+
+  // Step c: EU 547/2012 formula
+  const x = Math.log(nq);
+  const qBepM3h = qBepM3s * 3600; // note: different unit for y
+  const y = Math.log(qBepM3h);
+  const C = getCConstant(pump, n);
+
+  let etaBep = (88.59 * x + 13.46 * y - 11.48 * x * x - 0.85 * y * y - 0.38 * x * y - C) / 100;
+
+  // Step d: derate and clamp
+  const derate = getDerateFactors(pump);
+  etaBep = etaBep * derate;
+  etaBep = Math.max(SCORING_CONFIG.ETA_CLAMP_MIN, Math.min(SCORING_CONFIG.ETA_CLAMP_MAX, etaBep));
+
+  return etaBep;
+}
+
+/** 
+ * Get efficiency at a given per-pump operating flow q_o using the Section 5 fallback order.
+ * Returns { eta, usedEstimate } where usedEstimate=true means P_C should be 1.
+ */
+function getEfficiency(
+  pump: SavedPump,
+  qo: number,           // per-pump operating flow in pump native units
+  qBepEff: number,      // BEP flow at current speed in pump native units
+  hBepM: number,        // BEP head in metres
+  qBepM3s: number,      // BEP flow in m³/s at rated speed
+  pvsqScaled: { flow: number; head: number }[],
+  motorPowerScaled: { kw: number; flow: number }[] | undefined
+): { eta: number; usedEstimate: boolean } {
+  // Step 1: efficiency curve exists
+  if (pump.efficiency && pump.efficiency.length > 0) {
+    // The stored efficiency curve is at rated speed, but we use it at scaled flow
+    // (spec says: efficiency values travel with their scaled flow points)
+    const eta = interpolateEfficiencyAtFlow(pump.efficiency, qo);
+    if (eta !== null) return { eta, usedEstimate: false };
+  }
+
+  // Step 2: power curve exists — derive efficiency
+  if (motorPowerScaled && motorPowerScaled.length > 0) {
+    const pKw = interpolatePowerAtFlow(motorPowerScaled, qo);
+    if (pKw !== null && pKw > 0) {
+      // Need head at qo from scaled curve, then compute
+      const hAtQo = interpolateHeadAtFlow(pvsqScaled, qo);
+      // qo is in pump native units; convert to m³/s
+      const qoLmin = convertFlow(qo, pump.flowUnit, 'L/min');
+      const qoM3s = qoLmin / 60 / 1000;
+      const hoM = convertHead(hAtQo, pump.headUnit, 'm');
+      const etaDerived = (SCORING_CONFIG.RHO * SCORING_CONFIG.G * qoM3s * hoM) / (1000 * pKw);
+      if (etaDerived > 0 && etaDerived <= 1) return { eta: etaDerived, usedEstimate: false };
     }
   }
 
-  return { bepFlow, bepHead };
+  // Step 3: estimate from specific speed
+  const etaBep = estimateEfficiencyFromSpecificSpeed(pump, qBepM3s, hBepM);
+  const t = qBepEff > 0 ? qo / qBepEff : 1;
+  let eta = etaBep * (2 * t - t * t);
+  eta = Math.max(SCORING_CONFIG.ETA_FLOOR_OFF_BEP, eta);
+  return { eta, usedEstimate: true };
 }
 
-// --- Absorbed power (kW) ---
+// =============================================================================
+// Section 5 — Absorbed power (per pump, kW)
+// =============================================================================
 
 function calculateAbsorbedPower(
   qo: number,
@@ -194,17 +409,72 @@ function calculateAbsorbedPower(
   pumpFlowUnit: FlowUnit,
   pumpHeadUnit: HeadUnit
 ): number {
-  // Convert Qo to m^3/s
-  const qo_lmin = convertFlow(qo, pumpFlowUnit, 'L/min');
-  const qo_m3s = (qo_lmin * 0.001) / 60;
-  // Convert Ho to meters
-  const ho_m = convertHead(ho, pumpHeadUnit, 'm');
-
-  const powerWatts = RHO * G * qo_m3s * ho_m;
-  return powerWatts / (1000 * eta);
+  const qoLmin = convertFlow(qo, pumpFlowUnit, 'L/min');
+  const qoM3s = qoLmin / 60 / 1000;
+  const hoM = convertHead(ho, pumpHeadUnit, 'm');
+  return (SCORING_CONFIG.RHO * SCORING_CONFIG.G * qoM3s * hoM) / (1000 * eta);
 }
 
-// --- Generate system curve points in pump units ---
+// =============================================================================
+// BEP calculation (in pump native units)
+// =============================================================================
+
+export function calculateBep(pump: SavedPump): { bepFlow: number; bepHead: number } {
+  const r = getSpeedRatio(pump);
+
+  if (pump.manualBepFlow && pump.manualBepFlow > 0) {
+    const scaledBepFlow = pump.manualBepFlow * r;
+    const baseCurve = pump.pvsq && pump.pvsq.length > 0
+      ? pump.pvsq
+      : generateParabolicCurve(pump.maxHead, pump.maxFlow, 1);
+    const scaledCurve = affinityScaleCurve(baseCurve, r);
+    const bepHead = interpolateHeadAtFlow(scaledCurve, scaledBepFlow);
+    return { bepFlow: scaledBepFlow, bepHead };
+  }
+
+  const curve = pump.pvsq && pump.pvsq.length > 0
+    ? affinityScaleCurve(pump.pvsq, r)
+    : generateParabolicCurve(pump.maxHead, pump.maxFlow, r);
+
+  let bepFlow = 0, bepHead = 0, maxProduct = 0;
+  curve.forEach(p => {
+    const product = p.flow * p.head;
+    if (product > maxProduct) {
+      maxProduct = product;
+      bepFlow = p.flow;
+      bepHead = p.head;
+    }
+  });
+
+  return { bepFlow, bepHead };
+}
+
+/** BEP flow at RATED speed (r=1) in pump native units — used for R_Qo denominator. */
+function getBepFlowRated(pump: SavedPump): { bepFlowRated: number; bepHeadRated: number } {
+  if (pump.manualBepFlow && pump.manualBepFlow > 0) {
+    const bepHead = pump.pvsq && pump.pvsq.length > 0
+      ? interpolateHeadAtFlow(pump.pvsq, pump.manualBepFlow)
+      : pump.maxHead * (1 - Math.pow(pump.manualBepFlow / pump.maxFlow, 2));
+    return { bepFlowRated: pump.manualBepFlow, bepHeadRated: bepHead };
+  }
+  const curve = pump.pvsq && pump.pvsq.length > 0
+    ? pump.pvsq
+    : generateParabolicCurve(pump.maxHead, pump.maxFlow, 1);
+  let bepFlow = 0, bepHead = 0, maxProduct = 0;
+  curve.forEach(p => {
+    const product = p.flow * p.head;
+    if (product > maxProduct) {
+      maxProduct = product;
+      bepFlow = p.flow;
+      bepHead = p.head;
+    }
+  });
+  return { bepFlowRated: bepFlow, bepHeadRated: bepHead };
+}
+
+// =============================================================================
+// System curve generation in pump native units
+// =============================================================================
 
 function generateSystemCurvePointsInPumpUnits(
   system: SystemCurveData,
@@ -214,34 +484,18 @@ function generateSystemCurvePointsInPumpUnits(
   pumpFlowUnit: FlowUnit,
   pumpHeadUnit: HeadUnit
 ): PumpCurvePoint[] {
-  const useComponents =
-    system.components && system.components.length > 0;
   const numPoints = 100;
   const points: PumpCurvePoint[] = [];
+  const useComponents = system.components && system.components.length > 0;
 
   if (!useComponents) {
-    const staticHead = convertHead(
-      system.staticHead,
-      globalHeadUnit,
-      pumpHeadUnit
-    );
-    const opHead = convertHead(
-      system.operatingHead,
-      globalHeadUnit,
-      pumpHeadUnit
-    );
-    const opFlow = convertFlow(
-      system.operatingFlow,
-      globalFlowUnit,
-      pumpFlowUnit
-    );
+    const staticHead = convertHead(system.staticHead, globalHeadUnit, pumpHeadUnit);
+    const opHead = convertHead(system.operatingHead, globalHeadUnit, pumpHeadUnit);
+    const opFlow = convertFlow(system.operatingFlow, globalFlowUnit, pumpFlowUnit);
 
     if (opFlow <= 0) {
       for (let i = 0; i <= numPoints; i++) {
-        points.push({
-          flow: (maxFlow * i) / numPoints,
-          head: staticHead
-        });
+        points.push({ flow: (maxFlow * i) / numPoints, head: staticHead });
       }
       return points;
     }
@@ -249,76 +503,45 @@ function generateSystemCurvePointsInPumpUnits(
     for (let i = 0; i <= numPoints; i++) {
       const flow = (maxFlow * i) / numPoints;
       const ratio = flow / opFlow;
-      const head =
-        staticHead + (opHead - staticHead) * Math.pow(ratio, 2);
-      points.push({ flow, head });
+      points.push({ flow, head: staticHead + (opHead - staticHead) * Math.pow(ratio, 2) });
     }
   } else {
     for (let i = 0; i <= numPoints; i++) {
       const flow = (maxFlow * i) / numPoints;
       let totalHead = 0;
-
-      system.components!.forEach((comp) => {
+      system.components!.forEach(comp => {
         const fromFlowUnit = comp.flowUnit || 'L/min';
-        const qOp = convertFlow(
-          comp.operatingFlow,
-          fromFlowUnit,
-          pumpFlowUnit
-        );
-        const hStatic = convertHead(
-          comp.staticHead,
-          'm',
-          pumpHeadUnit
-        );
-        const hOp = convertHead(
-          comp.operatingHead,
-          'm',
-          pumpHeadUnit
-        );
-
-        if (qOp <= 0) {
-          totalHead += hStatic;
-          return;
-        }
-
+        const qOp = convertFlow(comp.operatingFlow, fromFlowUnit, pumpFlowUnit);
+        const hStatic = convertHead(comp.staticHead, 'm', pumpHeadUnit);
+        const hOp = convertHead(comp.operatingHead, 'm', pumpHeadUnit);
+        if (qOp <= 0) { totalHead += hStatic; return; }
         const frictionAtOp = hOp - hStatic;
-        const frictionAtQ =
-          frictionAtOp * Math.pow(flow / qOp, 2);
-        totalHead += hStatic + frictionAtQ;
+        totalHead += hStatic + frictionAtOp * Math.pow(flow / qOp, 2);
       });
-
       points.push({ flow, head: totalHead });
     }
   }
-
   return points;
 }
 
-// --- Find operating point (first valid intersection) ---
+// =============================================================================
+// Operating point intersection
+// =============================================================================
 
 function findOperatingPoint(
-  pumpPoints: PumpCurvePoint[],
-  systemPoints: PumpCurvePoint[]
+  pumpCurve: PumpCurvePoint[],
+  systemCurve: PumpCurvePoint[]
 ): { flow: number; head: number } | null {
-  const sortedPump = [...pumpPoints].sort((a, b) => a.flow - b.flow);
-
-  for (let i = 0; i < systemPoints.length - 1; i++) {
+  const sortedPump = [...pumpCurve].sort((a, b) => a.flow - b.flow);
+  for (let i = 0; i < systemCurve.length - 1; i++) {
     for (let j = 0; j < sortedPump.length - 1; j++) {
       const intersect = findLineIntersection(
-        systemPoints[i].flow,
-        systemPoints[i].head,
-        systemPoints[i + 1].flow,
-        systemPoints[i + 1].head,
-        sortedPump[j].flow,
-        sortedPump[j].head,
-        sortedPump[j + 1].flow,
-        sortedPump[j + 1].head
+        systemCurve[i].flow, systemCurve[i].head,
+        systemCurve[i + 1].flow, systemCurve[i + 1].head,
+        sortedPump[j].flow, sortedPump[j].head,
+        sortedPump[j + 1].flow, sortedPump[j + 1].head
       );
-      if (
-        intersect &&
-        intersect.x >= 0 &&
-        intersect.y >= 0
-      ) {
+      if (intersect && intersect.x >= 0 && intersect.y >= 0) {
         return { flow: intersect.x, head: intersect.y };
       }
     }
@@ -326,202 +549,161 @@ function findOperatingPoint(
   return null;
 }
 
-// --- Preliminary per-duty metrics (pass 1: no PE) ---
+// =============================================================================
+// Pass 1: preliminary per-duty metrics (no P_E yet — needs cross-pump pAbsBest)
+// =============================================================================
 
 export function calculatePreliminaryDutyMetrics(
   pump: SavedPump,
   duty: SystemCurveData,
   globalFlowUnit: FlowUnit,
-  globalHeadUnit: HeadUnit
+  globalHeadUnit: HeadUnit,
+  numberOfDutyPumps: number = 1
 ): PreliminaryDutyMetric {
   const dutyName = duty.name || 'Unnamed Duty';
+  const N = Math.max(1, numberOfDutyPumps);
 
-  // Convert duty to pump units
-  const dutyFlow = convertFlow(
-    duty.operatingFlow,
-    globalFlowUnit,
-    pump.flowUnit
-  );
-  const dutyHead = convertHead(
-    duty.operatingHead,
-    globalHeadUnit,
-    pump.headUnit
-  );
+  // Duty point in pump units
+  const dutyFlowGlobal = convertFlow(duty.operatingFlow, globalFlowUnit, pump.flowUnit);
+  const dutyHead = convertHead(duty.operatingHead, globalHeadUnit, pump.headUnit);
 
-  if (dutyFlow <= 0 || dutyHead <= 0) {
-    return {
-      dutyName,
-      isHidden: true,
-      canMeet: false,
-      ph: Infinity,
-      pr: Infinity,
-      pb: Infinity,
-      pc: 0,
-      pAbs: Infinity,
-      operatingPoint: { flow: dutyFlow, head: dutyHead },
-      rh: 0,
-      rq: 0,
-      applyFlowPenalty: false
-    };
+  const FAIL = (extra?: Partial<PreliminaryDutyMetric>): PreliminaryDutyMetric => ({
+    dutyName,
+    isHidden: true,
+    canMeet: false,
+    ph: Infinity,
+    pr: Infinity,
+    pa: Infinity,
+    pv: 0,
+    pc: 0,
+    pAbs: Infinity,
+    outsideAor: false,
+    motorOverload: false,
+    operatingPoint: { flow: 0, head: 0 },
+    rh: 0,
+    rqo: 0,
+    speedRatio: 1,
+    ...extra,
+  });
+
+  if (dutyFlowGlobal <= 0 || dutyHead <= 0) return FAIL();
+
+  // Speed ratio
+  const r = getSpeedRatio(pump);
+
+  // Build scaled active single-pump curve
+  const basePvsq = pump.pvsq && pump.pvsq.length > 0
+    ? pump.pvsq
+    : generateParabolicCurve(pump.maxHead, pump.maxFlow, 1);
+  const singlePumpCurveScaled = affinityScaleCurve(basePvsq, r);
+
+  // Active curve (combined for N > 1)
+  const activeCurve = N > 1
+    ? combineParallelCurves(singlePumpCurveScaled, N)
+    : singlePumpCurveScaled;
+
+  // Section 4 — Capability gate: evaluate at combined curve at Q_d
+  const pumpHeadAtDuty = getHeadAtDutyFlow(activeCurve, dutyFlowGlobal);
+  const rh = dutyHead > 0 ? pumpHeadAtDuty / dutyHead : 0;
+
+  if (rh < 1.0) {
+    return FAIL({ rh });
   }
 
-  // Pump head at duty flow
-  let pumpHeadAtDutyFlow: number;
-  if (pump.pvsq && pump.pvsq.length > 0) {
-    pumpHeadAtDutyFlow = interpolateHeadAtFlow(pump.pvsq, dutyFlow);
-  } else {
-    pumpHeadAtDutyFlow =
-      pump.maxHead * (1 - Math.pow(dutyFlow / pump.maxFlow, 2));
-  }
+  // BEP at rated speed (r=1) for R_Qo denominator
+  const { bepFlowRated, bepHeadRated } = getBepFlowRated(pump);
+  if (bepFlowRated <= 0) return FAIL({ rh });
 
-  // Hidden if duty head > pump head (can't meet)
-  const canMeet = dutyHead <= pumpHeadAtDutyFlow + 1e-6;
-  if (!canMeet) {
-    return {
-      dutyName,
-      isHidden: true,
-      canMeet: false,
-      ph: Infinity,
-      pr: Infinity,
-      pb: Infinity,
-      pc: 0,
-      pAbs: Infinity,
-      operatingPoint: { flow: dutyFlow, head: dutyHead },
-      rh: 0,
-      rq: 0,
-      applyFlowPenalty: false
-    };
-  }
+  // Q_BEP_eff = r * Q_BEP (BEP flow at current speed in pump units)
+  const qBepEff = r * bepFlowRated;
 
-  // BEP
-  const { bepFlow, bepHead } = calculateBep(pump);
-
-  if (bepFlow <= 0) {
-    return {
-      dutyName,
-      isHidden: true,
-      canMeet: false,
-      ph: Infinity,
-      pr: Infinity,
-      pb: Infinity,
-      pc: 0,
-      pAbs: Infinity,
-      operatingPoint: { flow: dutyFlow, head: dutyHead },
-      rh: 0,
-      rq: 0,
-      applyFlowPenalty: false
-    };
-  }
-
-  // Ratios
-  const rh = pumpHeadAtDutyFlow / dutyHead;
-  const rq = dutyFlow / bepFlow;
-
-  // Penalties (without PE — that needs P_abs_best)
-  const ph =
-    Math.pow(Math.max(0, (1.04 - rh) / 0.04), 2) +
-    Math.pow(Math.max(0, (rh - 1.15) / 0.30), 2);
-  const pr = Math.pow(
-    Math.max(
-      0,
-      Math.max((0.7 - rq) / 0.2, (rq - 1.2) / 0.2)
-    ),
-    2
-  );
-  const pb = Math.pow(Math.log(rq) / Math.log(1.3), 2);
-
-  // Data confidence
-  const hasEfficiency =
-    pump.efficiency && pump.efficiency.length > 0;
-  const pc = hasEfficiency ? 0 : 1;
-
-  // Operating point (intersection)
-  const systemPoints = generateSystemCurvePointsInPumpUnits(
+  // Operating point: where ACTIVE combined pump curve crosses system curve
+  const systemCurvePoints = generateSystemCurvePointsInPumpUnits(
     duty,
-    pump.maxFlow * 1.2,
+    Math.max(...activeCurve.map(p => p.flow)) * 1.2,
     globalFlowUnit,
     globalHeadUnit,
     pump.flowUnit,
     pump.headUnit
   );
 
-  let pumpPoints: PumpCurvePoint[];
-  if (pump.pvsq && pump.pvsq.length > 0) {
-    pumpPoints = pump.pvsq.map((p) => ({
-      flow: p.flow,
-      head: p.head
-    }));
-  } else {
-    const num = 100;
-    pumpPoints = [];
-    for (let i = 0; i <= num; i++) {
-      const f = (pump.maxFlow * i) / num;
-      const h =
-        pump.maxHead * (1 - Math.pow(f / pump.maxFlow, 2));
-      pumpPoints.push({ flow: f, head: h });
-    }
-  }
+  const opRaw = findOperatingPoint(activeCurve, systemCurvePoints);
+  const Qo = opRaw ? opRaw.flow : dutyFlowGlobal;
+  const Ho = opRaw ? opRaw.head : dutyHead;
 
-  let op = findOperatingPoint(pumpPoints, systemPoints);
-  if (!op) {
-    op = { flow: dutyFlow, head: dutyHead };
-  }
+  // Per-pump operating flow q_o = Q_o / N
+  const qo = Qo / N;
 
-  // Efficiency at operating point
-  let eta = DEFAULT_ETA;
-  if (hasEfficiency) {
-    const effSorted = pump
-      .efficiency!.map((e) => ({
-        flow: Number(e.flow),
-        eff: Number(e.eff)
-      }))
-      .sort((a, b) => a.flow - b.flow);
+  // Operating flow ratio R_Qo = q_o / Q_BEP_eff
+  const rqo = qBepEff > 0 ? qo / qBepEff : 0;
 
-    let lower = effSorted[0];
-    let upper = effSorted[effSorted.length - 1];
-    for (let i = 0; i < effSorted.length - 1; i++) {
-      if (
-        effSorted[i].flow <= op.flow &&
-        effSorted[i + 1].flow >= op.flow
-      ) {
-        lower = effSorted[i];
-        upper = effSorted[i + 1];
-        break;
-      }
-    }
+  // ---- Efficiency at q_o (Section 5 fallback) ----
+  // Scale motor power curve by r³ for affinity laws
+  const motorPowerScaled: { kw: number; flow: number }[] | undefined =
+    pump.motorPower && pump.motorPower.length > 0
+      ? pump.motorPower.map(p => ({
+          flow: p.flow * r,
+          kw: p.kw * r * r * r,
+        }))
+      : undefined;
 
-    let rawEta = lower.eff;
-    if (lower.flow !== upper.flow) {
-      const ratio =
-        (op.flow - lower.flow) /
-        (upper.flow - lower.flow);
-      rawEta = lower.eff + ratio * (upper.eff - lower.eff);
-    }
+  // BEP head in metres and BEP flow in m³/s at rated speed (for specific-speed estimate)
+  const bepHeadM = convertHead(bepHeadRated, pump.headUnit, 'm');
+  const bepFlowLmin = convertFlow(bepFlowRated, pump.flowUnit, 'L/min');
+  const bepFlowM3s = bepFlowLmin / 60 / 1000;
 
-    if (rawEta > 1.5) rawEta /= 100;
-    if (rawEta > 0 && rawEta <= 1) eta = rawEta;
-  }
-
-  // Absorbed power at operating point
-  let pAbs: number;
-  const powerFromCurve = interpolatePowerAtFlow(
-    pump.motorPower,
-    op.flow
+  const { eta, usedEstimate } = getEfficiency(
+    pump, qo, qBepEff, bepHeadM, bepFlowM3s, singlePumpCurveScaled, motorPowerScaled
   );
+
+  // Absorbed power per pump (kW)
+  let pAbsPerPump: number;
+  const powerFromCurve = motorPowerScaled
+    ? interpolatePowerAtFlow(motorPowerScaled, qo)
+    : null;
   if (powerFromCurve !== null) {
-    pAbs = powerFromCurve;
+    pAbsPerPump = powerFromCurve;
   } else {
-    pAbs = calculateAbsorbedPower(
-      op.flow,
-      op.head,
-      eta,
-      pump.flowUnit,
-      pump.headUnit
-    );
+    pAbsPerPump = calculateAbsorbedPower(qo, Ho, eta, pump.flowUnit, pump.headUnit);
   }
 
-  // Flow ratio penalty flag
-  const applyFlowPenalty = rq < 0.5 || rq > 1.4;
+  // Station total
+  const pAbsTotal = N * pAbsPerPump;
+
+  // ---- Section 6 — Penalty terms ----
+
+  // 6.1 P_H — evaluated at DUTY point
+  const C = SCORING_CONFIG;
+  const ph =
+    C.HEAD_LOW_FACTOR * Math.pow(Math.max(0, (C.HEAD_BAND_LOW - rh) / C.HEAD_LOW_SCALE), 2) +
+    Math.pow(Math.max(0, (rh - C.HEAD_BAND_HIGH) / C.HEAD_HIGH_SCALE), 2);
+
+  // 6.2 P_R — evaluated at OPERATING point using R_Qo
+  const pr = Math.pow(
+    Math.max(0, (C.POR_LOW - rqo) / C.POR_SCALE, (rqo - C.POR_HIGH) / C.POR_SCALE),
+    2
+  );
+
+  // 6.3 P_A — AOR excursion, evaluated at OPERATING point
+  const paRaw = Math.max(0, (C.AOR_LOW - rqo) / C.AOR_SCALE, (rqo - C.AOR_HIGH) / C.AOR_SCALE);
+  const pa = paRaw * paRaw;
+  const outsideAor = pa > 0;
+
+  // 6.5 P_V — VFD speed deviation
+  const pv =
+    Math.pow(Math.max(0, (C.SPEED_DEADBAND - r) / C.SPEED_LOW_SCALE), 2) +
+    Math.pow(Math.max(0, (r - 1.0) / C.SPEED_HIGH_SCALE), 2);
+
+  // 6.6 P_C — data confidence
+  const hasEfficiency = pump.efficiency && pump.efficiency.length > 0;
+  const hasPowerCurve = pump.motorPower && pump.motorPower.length > 0;
+  const pc = (hasEfficiency || hasPowerCurve) ? 0 : (usedEstimate ? 1 : 0);
+
+  // Section 8 — Motor overload flag
+  const ratedMotorKw = pump.kw;
+  const motorOverload = ratedMotorKw != null && ratedMotorKw > 0
+    ? pAbsPerPump > ratedMotorKw
+    : false;
 
   return {
     dutyName,
@@ -529,22 +711,26 @@ export function calculatePreliminaryDutyMetrics(
     canMeet: true,
     ph,
     pr,
-    pb,
+    pa,
+    pv,
     pc,
-    pAbs,
-    operatingPoint: op,
+    pAbs: pAbsTotal,
+    outsideAor,
+    motorOverload,
+    operatingPoint: { flow: Qo, head: Ho },
     rh,
-    rq,
-    applyFlowPenalty
+    rqo,
+    speedRatio: r,
   };
 }
 
-// --- Pass 2: finalize PE and compute Sd ---
+// =============================================================================
+// Pass 2: finalize P_E and compute S_d
+// =============================================================================
 
 export function finalizeDutyMetrics(
   pre: PreliminaryDutyMetric,
   pAbsBest: number,
-  penaltyFactor: number
 ): DutyMetric {
   if (pre.isHidden) {
     return {
@@ -553,30 +739,34 @@ export function finalizeDutyMetrics(
       canMeet: false,
       ph: pre.ph,
       pr: pre.pr,
-      pb: pre.pb,
-      pc: pre.pc,
+      pa: pre.pa,
       pe: Infinity,
+      pv: pre.pv,
+      pc: pre.pc,
       pAbs: pre.pAbs,
+      outsideAor: false,
+      motorOverload: false,
       operatingPoint: pre.operatingPoint,
       rh: pre.rh,
-      rq: pre.rq,
-      score: Infinity
+      rqo: pre.rqo,
+      score: Infinity,
     };
   }
 
-  const pe = pAbsBest > 0 ? pre.pAbs / pAbsBest - 1 : 0;
+  // 6.4 P_E — clamped to [0, PE_CAP]
+  const pe = pAbsBest > 0
+    ? Math.max(0, Math.min(SCORING_CONFIG.PE_CAP, pre.pAbs / pAbsBest - 1))
+    : 0;
 
-  let sd =
-    100 *
-    (0.35 * pre.ph +
-      0.25 * pre.pr +
-      0.20 * pe +
-      0.15 * pre.pb +
-      0.05 * pre.pc);
-
-  if (pre.applyFlowPenalty) {
-    sd *= penaltyFactor;
-  }
+  const C = SCORING_CONFIG;
+  const sd = 100 * (
+    C.W_H * pre.ph +
+    C.W_R * pre.pr +
+    C.W_A * pre.pa +
+    C.W_E * pe +
+    C.W_V * pre.pv +
+    C.W_C * pre.pc
+  );
 
   return {
     dutyName: pre.dutyName,
@@ -584,40 +774,39 @@ export function finalizeDutyMetrics(
     canMeet: true,
     ph: pre.ph,
     pr: pre.pr,
-    pb: pre.pb,
-    pc: pre.pc,
+    pa: pre.pa,
     pe,
+    pv: pre.pv,
+    pc: pre.pc,
     pAbs: pre.pAbs,
+    outsideAor: pre.outsideAor,
+    motorOverload: pre.motorOverload,
     operatingPoint: pre.operatingPoint,
     rh: pre.rh,
-    rq: pre.rq,
-    score: sd
+    rqo: pre.rqo,
+    score: sd,
   };
 }
 
-// --- Aggregate for AND mode ---
+// =============================================================================
+// Section 10 — AND / OR mode aggregation
+// =============================================================================
 
 export function aggregateAndMode(
   metrics: DutyMetric[]
 ): { finalScore: number; isHidden: boolean } {
-  if (metrics.length === 0) {
-    return { finalScore: Infinity, isHidden: true };
-  }
+  if (metrics.length === 0) return { finalScore: Infinity, isHidden: true };
 
-  const allCanMeet = metrics.every((m) => m.canMeet);
-  if (!allCanMeet) {
-    return { finalScore: Infinity, isHidden: true };
-  }
+  // Must pass all duties
+  if (!metrics.every(m => m.canMeet)) return { finalScore: Infinity, isHidden: true };
 
-  const scores = metrics.map((m) => m.score);
+  const scores = metrics.map(m => m.score);
   const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
   const worst = Math.max(...scores);
-  const finalScore = (avg + worst * 0.35) / 1.35;
+  const finalScore = (avg + SCORING_CONFIG.AND_WORST_WEIGHT * worst) / (1 + SCORING_CONFIG.AND_WORST_WEIGHT);
 
   return { finalScore, isHidden: false };
 }
-
-// --- Aggregate for OR mode ---
 
 export function aggregateOrMode(
   metrics: DutyMetric[]
@@ -631,55 +820,40 @@ export function aggregateOrMode(
 } {
   if (metrics.length === 0) {
     return {
-      finalScore: Infinity,
-      isHidden: true,
-      bestDutyName: '',
-      dutiesPassedCount: 0,
-      avgPassedScore: Infinity,
-      bestDutyP_abs: Infinity
+      finalScore: Infinity, isHidden: true, bestDutyName: '',
+      dutiesPassedCount: 0, avgPassedScore: Infinity, bestDutyP_abs: Infinity,
     };
   }
 
-  const passed = metrics.filter((m) => !m.isHidden);
-  const dutiesPassedCount = passed.length;
-
-  if (dutiesPassedCount === 0) {
+  const passed = metrics.filter(m => !m.isHidden && m.canMeet);
+  if (passed.length === 0) {
     return {
-      finalScore: Infinity,
-      isHidden: true,
-      bestDutyName: '',
-      dutiesPassedCount: 0,
-      avgPassedScore: Infinity,
-      bestDutyP_abs: Infinity
+      finalScore: Infinity, isHidden: true, bestDutyName: '',
+      dutiesPassedCount: 0, avgPassedScore: Infinity, bestDutyP_abs: Infinity,
     };
   }
 
-  const passedScores = passed.map((m) => m.score);
-  const avgPassedScore =
-    passedScores.reduce((a, b) => a + b, 0) / passedScores.length;
+  const avgPassedScore = passed.reduce((s, m) => s + m.score, 0) / passed.length;
 
-  let bestIdx = 0;
-  let bestScore = Infinity;
-  passed.forEach((m, i) => {
-    if (m.score < bestScore) {
-      bestScore = m.score;
-      bestIdx = i;
-    }
-  });
-
-  const best = passed[bestIdx];
+  // Best = lowest score among passed duties
+  let best = passed[0];
+  for (const m of passed) {
+    if (m.score < best.score) best = m;
+  }
 
   return {
     finalScore: best.score,
     isHidden: false,
     bestDutyName: best.dutyName,
-    dutiesPassedCount,
+    dutiesPassedCount: passed.length,
     avgPassedScore,
-    bestDutyP_abs: best.pAbs
+    bestDutyP_abs: best.pAbs,
   };
 }
 
-// --- Convenience wrapper: two-pass scoring for a single pump ---
+// =============================================================================
+// Convenience wrapper: two-pass scoring for a single pump
+// =============================================================================
 
 export function scorePumpForDuties(
   pump: SavedPump,
@@ -687,36 +861,23 @@ export function scorePumpForDuties(
   globalFlowUnit: FlowUnit,
   globalHeadUnit: HeadUnit,
   dischargeCurveMode: 'and' | 'or',
-  penaltyFactor: number,
-  pAbsBestPerDuty: number[]
+  pAbsBestPerDuty: number[],
+  numberOfDutyPumps: number = 1
 ): PumpScoringResult {
-  if (
-    duties.length === 0 ||
-    pAbsBestPerDuty.length !== duties.length
-  ) {
+  if (duties.length === 0 || pAbsBestPerDuty.length !== duties.length) {
     return {
-      finalScore: Infinity,
-      isHidden: true,
-      dutiesPassedCount: 0,
-      avgPassedScore: Infinity,
-      bestDutyP_abs: Infinity,
-      dutyMetrics: []
+      finalScore: Infinity, isHidden: true,
+      dutiesPassedCount: 0, avgPassedScore: Infinity,
+      bestDutyP_abs: Infinity, dutyMetrics: [],
     };
   }
 
-  // Pass 1
-  const preliminaries = duties.map((duty) =>
-    calculatePreliminaryDutyMetrics(
-      pump,
-      duty,
-      globalFlowUnit,
-      globalHeadUnit
-    )
+  const preliminaries = duties.map(duty =>
+    calculatePreliminaryDutyMetrics(pump, duty, globalFlowUnit, globalHeadUnit, numberOfDutyPumps)
   );
 
-  // Pass 2
   const finalized = preliminaries.map((pre, i) =>
-    finalizeDutyMetrics(pre, pAbsBestPerDuty[i], penaltyFactor)
+    finalizeDutyMetrics(pre, pAbsBestPerDuty[i])
   );
 
   if (dischargeCurveMode === 'and') {
@@ -724,14 +885,12 @@ export function scorePumpForDuties(
     return {
       finalScore: andResult.finalScore,
       isHidden: andResult.isHidden,
-      dutiesPassedCount: finalized.filter((m) => !m.isHidden).length,
-      avgPassedScore:
-        finalized.length > 0
-          ? finalized.reduce((sum, m) => sum + m.score, 0) /
-            finalized.length
-          : Infinity,
+      dutiesPassedCount: finalized.filter(m => !m.isHidden).length,
+      avgPassedScore: finalized.length > 0
+        ? finalized.reduce((s, m) => s + m.score, 0) / finalized.length
+        : Infinity,
       bestDutyP_abs: 0,
-      dutyMetrics: finalized
+      dutyMetrics: finalized,
     };
   }
 
@@ -743,6 +902,22 @@ export function scorePumpForDuties(
     dutiesPassedCount: orResult.dutiesPassedCount,
     avgPassedScore: orResult.avgPassedScore,
     bestDutyP_abs: orResult.bestDutyP_abs,
-    dutyMetrics: finalized
+    dutyMetrics: finalized,
   };
+}
+
+// =============================================================================
+// Score badge label helper
+// =============================================================================
+
+export function getSuitabilityBadge(score: number, isHidden: boolean): {
+  label: string;
+  colorClass: string;
+} {
+  if (isHidden || !isFinite(score)) return { label: 'Failed', colorClass: 'bg-red-600' };
+  if (score <= 10)  return { label: 'Excellent', colorClass: 'bg-emerald-600' };
+  if (score <= 25)  return { label: 'Good',      colorClass: 'bg-green-500' };
+  if (score <= 50)  return { label: 'Acceptable',colorClass: 'bg-yellow-500' };
+  if (score <= 100) return { label: 'Suboptimal',colorClass: 'bg-orange-500' };
+  return                    { label: 'Unsuitable',colorClass: 'bg-red-500' };
 }

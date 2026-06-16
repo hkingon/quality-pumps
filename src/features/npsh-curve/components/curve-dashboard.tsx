@@ -1923,6 +1923,7 @@ export function PumpCurveDashboard() {
             headUnit={headUnit}
             flowUnit={flowUnit}
             dischargeCurveMode={dischargeCurveMode}
+            numberOfDutyPumps={numberOfDutyPumps}
           />
         </Card>
       </div>

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import type { SavedPump, SystemCurveData } from '@/types';
 import type { PumpScoringResult } from '@/lib/pump-scoring';
-import { Pencil, Plus, Search, X, Filter, ChevronDown } from 'lucide-react';
+import { AlertTriangle, Pencil, Plus, Search, X, Filter, ChevronDown } from 'lucide-react';
 import { convertFlow, convertHead, FlowUnit, HeadUnit } from '@/lib/units';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { Badge } from '@/components/ui/badge';
@@ -34,7 +34,8 @@ import {
   finalizeDutyMetrics,
   aggregateAndMode,
   aggregateOrMode,
-  calculateBep
+  calculateBep,
+  getSuitabilityBadge
 } from '@/lib/pump-scoring';
 
 interface SavedPumpsListProps {
@@ -48,6 +49,7 @@ interface SavedPumpsListProps {
   headUnit: HeadUnit;
   flowUnit: FlowUnit;
   dischargeCurveMode?: 'and' | 'or';
+  numberOfDutyPumps?: number;
 }
 
 export function SavedPumpsList({
@@ -60,7 +62,8 @@ export function SavedPumpsList({
   editPumpFromSaved,
   headUnit,
   flowUnit,
-  dischargeCurveMode = 'or'
+  dischargeCurveMode = 'or',
+  numberOfDutyPumps = 1
 }: SavedPumpsListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [pumpsOnChart, setPumpsOnChart] = useState<string[]>([]);
@@ -73,14 +76,6 @@ export function SavedPumpsList({
       return sessionStorage.getItem('showHiddenPumps') === 'true';
     } catch {
       return false;
-    }
-  });
-  const [penaltyFactor, setPenaltyFactor] = useState(() => {
-    try {
-      const stored = localStorage.getItem('pumpPenaltyFactor');
-      return stored !== null ? parseFloat(stored) : 1.0;
-    } catch {
-      return 1.0;
     }
   });
 
@@ -158,15 +153,7 @@ export function SavedPumpsList({
     });
   };
 
-  const handlePenaltyFactorChange = (value: number) => {
-    const clamped = Math.max(0, value);
-    setPenaltyFactor(clamped);
-    try {
-      localStorage.setItem('pumpPenaltyFactor', String(clamped));
-    } catch {
-      /* ignore */
-    }
-  };
+
 
   const getActiveFilterCount = () => {
     let count = 0;
@@ -303,36 +290,41 @@ export function SavedPumpsList({
       (d) => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0
     );
 
-    // --- Two-pass scoring ---
-    // Pass 1: preliminary metrics for ALL filtered pumps
-    const preliminariesForAll = filtered.map((pump) => {
+    // --- Two-pass scoring (v2) ---
+    // Pass 1 — benchmark: run ALL library pumps (allPumps, not just filtered) at rated
+    // speed r=1 to find P_abs_best per duty. This is the v2 spec Section 6.4 requirement
+    // that the benchmark set B_d ignores UI filters.
+    const prelimBenchmark = allPumps.map((pump) => {
       const perDuty = validDuties.map((duty) =>
-        calculatePreliminaryDutyMetrics(
-          pump,
-          duty,
-          flowUnit,
-          headUnit
-        )
+        calculatePreliminaryDutyMetrics(pump, duty, flowUnit, headUnit, numberOfDutyPumps)
       );
       return { pump, perDuty };
     });
 
-    // Compute P_abs_best per duty across all capable (non-hidden) pumps
+    // P_abs_best per duty: smallest P_abs_total among pumps that pass gate AND are inside AOR
     const pAbsBestPerDuty: number[] = validDuties.map((_, dutyIdx) => {
       let best = Infinity;
-      for (const { perDuty } of preliminariesForAll) {
+      for (const { perDuty } of prelimBenchmark) {
         const pre = perDuty[dutyIdx];
-        if (!pre.isHidden && pre.pAbs < best) {
+        // Benchmark set: must pass gate (rh >= 1) and be inside AOR (rqo in [0.50, 1.40])
+        if (!pre.isHidden && !pre.outsideAor && pre.pAbs < best) {
           best = pre.pAbs;
         }
       }
       return best !== Infinity ? best : 0;
     });
 
-    // Pass 2: finalize and aggregate
-    const scored = preliminariesForAll.map(({ pump, perDuty }) => {
+    // Pass 2 — score only the visible (filtered) pumps under their actual speed
+    const preliminariesForFiltered = filtered.map((pump) => {
+      const perDuty = validDuties.map((duty) =>
+        calculatePreliminaryDutyMetrics(pump, duty, flowUnit, headUnit, numberOfDutyPumps)
+      );
+      return { pump, perDuty };
+    });
+
+    const scored = preliminariesForFiltered.map(({ pump, perDuty }) => {
       const finalized = perDuty.map((pre, i) =>
-        finalizeDutyMetrics(pre, pAbsBestPerDuty[i], penaltyFactor)
+        finalizeDutyMetrics(pre, pAbsBestPerDuty[i])
       );
 
       const result: PumpScoringResult & {
@@ -348,21 +340,12 @@ export function SavedPumpsList({
                 dutiesPassedCount: finalized.filter((m) => !m.isHidden).length,
                 avgPassedScore:
                   finalized.length > 0
-                    ? finalized.reduce((s, m) => s + m.score, 0) /
-                      finalized.length
+                    ? finalized.reduce((s, m) => s + m.score, 0) / finalized.length
                     : Infinity,
                 bestDutyP_abs: 0,
                 dutyMetrics: finalized,
-                convertedMaxFlow: convertFlow(
-                  pump.maxFlow,
-                  pump.flowUnit,
-                  flowUnit
-                ),
-                convertedMaxHead: convertHead(
-                  pump.maxHead,
-                  pump.headUnit,
-                  headUnit
-                )
+                convertedMaxFlow: convertFlow(pump.maxFlow, pump.flowUnit, flowUnit),
+                convertedMaxHead: convertHead(pump.maxHead, pump.headUnit, headUnit)
               };
             })()
           : (() => {
@@ -375,23 +358,18 @@ export function SavedPumpsList({
                 avgPassedScore: agg.avgPassedScore,
                 bestDutyP_abs: agg.bestDutyP_abs,
                 dutyMetrics: finalized,
-                convertedMaxFlow: convertFlow(
-                  pump.maxFlow,
-                  pump.flowUnit,
-                  flowUnit
-                ),
-                convertedMaxHead: convertHead(
-                  pump.maxHead,
-                  pump.headUnit,
-                  headUnit
-                )
+                convertedMaxFlow: convertFlow(pump.maxFlow, pump.flowUnit, flowUnit),
+                convertedMaxHead: convertHead(pump.maxHead, pump.headUnit, headUnit)
               };
             })();
 
-      // BEP in display units
       const bep = calculateBep(pump);
       const bepFlowConverted = convertFlow(bep.bepFlow, pump.flowUnit, flowUnit);
       const bepHeadConverted = convertHead(bep.bepHead, pump.headUnit, headUnit);
+
+      // Aggregate warning flags across all duties
+      const anyOutsideAor  = finalized.some(m => !m.isHidden && m.outsideAor);
+      const anyMotorOverload = finalized.some(m => !m.isHidden && m.motorOverload);
 
       return {
         ...pump,
@@ -405,44 +383,37 @@ export function SavedPumpsList({
         bestDutyName: result.bestDutyName,
         dutiesPassedCount: result.dutiesPassedCount,
         avgPassedScore: result.avgPassedScore,
-        bestDutyP_abs: result.bestDutyP_abs
+        bestDutyP_abs: result.bestDutyP_abs,
+        anyOutsideAor,
+        anyMotorOverload,
+        dutyMetrics: finalized,
       };
     });
 
-    // Sort: visible first (by score asc), then hidden at bottom
+    // Sort: visible first (score asc), then hidden at bottom
     scored.sort((a, b) => {
       if (!a.isHidden && b.isHidden) return -1;
       if (a.isHidden && !b.isHidden) return 1;
 
       if (!a.isHidden && !b.isHidden) {
-        // Primary: score ascending
         if (a.score !== b.score) return a.score - b.score;
 
-        // OR-mode tie-breakers (only when scores are equal)
+        // OR-mode tie-breakers (spec Section 10)
         if (dischargeCurveMode === 'or') {
-          // Tie-breaker 1: highest number of duties passed
+          // 1. Highest duties passed
           if ((b.dutiesPassedCount || 0) !== (a.dutiesPassedCount || 0))
             return (b.dutiesPassedCount || 0) - (a.dutiesPassedCount || 0);
-
-          // Tie-breaker 2: lowest average passed score
-          if (
-            (a.avgPassedScore || Infinity) !==
-            (b.avgPassedScore || Infinity)
-          )
+          // 2. Lowest avg score
+          if ((a.avgPassedScore || Infinity) !== (b.avgPassedScore || Infinity))
             return (a.avgPassedScore || Infinity) - (b.avgPassedScore || Infinity);
-
-          // Tie-breaker 3: lowest absorbed power at best duty
-          if (
-            (a.bestDutyP_abs || Infinity) !==
-            (b.bestDutyP_abs || Infinity)
-          )
+          // 3. Lowest absorbed power
+          if ((a.bestDutyP_abs || Infinity) !== (b.bestDutyP_abs || Infinity))
             return (a.bestDutyP_abs || Infinity) - (b.bestDutyP_abs || Infinity);
         }
-
-        return 0;
+        // 4. Model name A→Z (deterministic final tie-breaker)
+        return a.name.localeCompare(b.name);
       }
 
-      // Both hidden — keep original relative order or sort by name
       return a.name.localeCompare(b.name);
     });
 
@@ -455,7 +426,7 @@ export function SavedPumpsList({
     flowUnit,
     headUnit,
     dischargeCurveMode,
-    penaltyFactor
+    numberOfDutyPumps
   ]);
 
   const handleViewPump = (pumpId: string): void => {
@@ -662,22 +633,7 @@ export function SavedPumpsList({
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Penalty Factor Control */}
-      <div className='flex items-center gap-2 rounded border p-2'>
-        <label className='text-muted-foreground text-xs whitespace-nowrap'>
-          Flow Ratio Penalty Factor:
-        </label>
-        <Input
-          type='number'
-          step={0.1}
-          min={0}
-          value={penaltyFactor}
-          onChange={(e) =>
-            handlePenaltyFactorChange(parseFloat(e.target.value))
-          }
-          className='h-7 w-24 text-sm'
-        />
-      </div>
+
 
       {/* Operating Duty Info */}
       {systemCurveData.some(d => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0) && (
@@ -789,16 +745,52 @@ export function SavedPumpsList({
                       </div>
                     </div>
                     {systemCurveData.some(d => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0) && (
-                      <div className='text-muted-foreground text-xs'>
-                        BEP: {pump.bepFlow.toFixed(1)} {flowUnit} at{' '}
-                        {pump.bepHead.toFixed(1)} {headUnit}
-                        {!pump.isHidden && pump.score !== Infinity && (
-                          <span className='ml-2 text-green-600 dark:text-green-400'>
-                            {dischargeCurveMode === 'or' && pump.bestDutyName
-                              ? `(Score [${pump.bestDutyName}]: ${pump.score.toFixed(3)})`
-                              : `(Score: ${pump.score.toFixed(3)})`}
-                          </span>
-                        )}
+                      <div className='text-muted-foreground text-xs space-y-0.5'>
+                        <div>
+                          BEP: {pump.bepFlow.toFixed(1)} {flowUnit} at{' '}
+                          {pump.bepHead.toFixed(1)} {headUnit}
+                        </div>
+                        {!pump.isHidden && pump.score !== Infinity && (() => {
+                          const badge = getSuitabilityBadge(pump.score, pump.isHidden);
+                          return (
+                            <div className='flex flex-wrap items-center gap-1 mt-0.5'>
+                              <span className={`rounded px-1 py-0.5 text-[10px] text-white font-medium ${badge.colorClass}`}>
+                                {badge.label}
+                              </span>
+                              <span className='text-green-600 dark:text-green-400'>
+                                {dischargeCurveMode === 'or' && pump.bestDutyName
+                                  ? `Score [${pump.bestDutyName}]: ${pump.score.toFixed(1)}`
+                                  : `Score: ${pump.score.toFixed(1)}`}
+                              </span>
+                              {pump.anyOutsideAor && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className='flex items-center gap-0.5 rounded bg-amber-500 px-1 py-0.5 text-[10px] text-white font-medium cursor-default'>
+                                      <AlertTriangle className='h-2.5 w-2.5' />
+                                      Outside AOR
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side='top'>
+                                    Pump is operating outside the Allowable Operating Range (50–140% of BEP flow).
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                              {pump.anyMotorOverload && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className='flex items-center gap-0.5 rounded bg-red-600 px-1 py-0.5 text-[10px] text-white font-medium cursor-default'>
+                                      <AlertTriangle className='h-2.5 w-2.5' />
+                                      Motor overload
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side='top' className='max-w-[220px]'>
+                                    Motor overload risk — duty may exceed rated motor power. Larger motor options may exist; confirm with the manufacturer/engineer.
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>
