@@ -283,8 +283,8 @@ function getHeadAtDutyFlow(
 
 /** Table 5-1: C constants by pump category */
 function getCConstant(pump: SavedPump, ratedRpm: number): number {
-  const classes = pump.pumpClass || [];
-  const config = pump.configuration || [];
+  const classes = (pump.pumpClass || []).filter((c): c is string => typeof c === 'string');
+  const config = (pump.configuration || []).filter((c): c is string => typeof c === 'string');
   const combined = [...classes, ...config];
 
   // Borehole / Bore Pump
@@ -308,7 +308,7 @@ function getCConstant(pump: SavedPump, ratedRpm: number): number {
 /** Table 5-2: derate factor — minimum if multiple apply */
 function getDerateFactors(pump: SavedPump): number {
   const impeller = (pump.impellerType || '').toLowerCase();
-  const classes = (pump.pumpClass || []).map(c => c.toLowerCase());
+  const classes = (pump.pumpClass || []).filter((c): c is string => typeof c === 'string').map(c => c.toLowerCase());
   const factors: number[] = [];
 
   if (impeller.includes('vortex') || classes.some(c => c.includes('vortex'))) factors.push(0.65);
@@ -558,7 +558,8 @@ export function calculatePreliminaryDutyMetrics(
   duty: SystemCurveData,
   globalFlowUnit: FlowUnit,
   globalHeadUnit: HeadUnit,
-  numberOfDutyPumps: number = 1
+  numberOfDutyPumps: number = 1,
+  forceSpeedRatio?: number
 ): PreliminaryDutyMetric {
   const dutyName = duty.name || 'Unnamed Duty';
   const N = Math.max(1, numberOfDutyPumps);
@@ -589,7 +590,7 @@ export function calculatePreliminaryDutyMetrics(
   if (dutyFlowGlobal <= 0 || dutyHead <= 0) return FAIL();
 
   // Speed ratio
-  const r = getSpeedRatio(pump);
+  const r = forceSpeedRatio ?? getSpeedRatio(pump);
 
   // Build scaled active single-pump curve
   const basePvsq = pump.pvsq && pump.pvsq.length > 0

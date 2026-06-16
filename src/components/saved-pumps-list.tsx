@@ -262,8 +262,10 @@ export function SavedPumpsList({
           if (phase === 'DC') {
             const typeArr = Array.isArray(pump.type) ? pump.type : [pump.type || ''];
             return typeArr.some(t =>
-              t.toLowerCase().includes('dc') ||
-              t.toLowerCase().includes('solar')
+              typeof t === 'string' && (
+                t.toLowerCase().includes('dc') ||
+                t.toLowerCase().includes('solar')
+              )
             );
           }
           return false;
@@ -296,7 +298,7 @@ export function SavedPumpsList({
     // that the benchmark set B_d ignores UI filters.
     const prelimBenchmark = allPumps.map((pump) => {
       const perDuty = validDuties.map((duty) =>
-        calculatePreliminaryDutyMetrics(pump, duty, flowUnit, headUnit, numberOfDutyPumps)
+        calculatePreliminaryDutyMetrics(pump, duty, flowUnit, headUnit, numberOfDutyPumps, 1)
       );
       return { pump, perDuty };
     });
@@ -762,6 +764,15 @@ export function SavedPumpsList({
                                   ? `Score [${pump.bestDutyName}]: ${pump.score.toFixed(1)}`
                                   : `Score: ${pump.score.toFixed(1)}`}
                               </span>
+                              {dischargeCurveMode === 'and' && pump.dutyMetrics && (
+                                <div className='flex flex-wrap gap-1 mt-1 w-full'>
+                                  {pump.dutyMetrics.map((dm) => (
+                                    <span key={dm.dutyName} className='rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-1.5 py-0.5 text-[9px] font-medium border border-gray-200/60 dark:border-gray-700/60'>
+                                      {dm.dutyName}: {dm.score !== Infinity && !isNaN(dm.score) ? dm.score.toFixed(1) : 'Failed'}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                               {pump.anyOutsideAor && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
