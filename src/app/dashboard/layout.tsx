@@ -4,6 +4,7 @@ import AppSidebar from '@/components/layout/app-sidebar';
 import Header from '@/components/layout/header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { createClient } from '@/lib/supabase/server';
+import { ActivityTracker } from '@/components/layout/activity-tracker';
 // // import { supabase } from '@/lib/supabase/client';
 // import { createClient } from '@/lib/supabase/server';
 import type { Metadata } from 'next';
@@ -40,6 +41,7 @@ export default async function DashboardLayout({
   const defaultOpen = cookieStore.get('sidebar:state')?.value === 'true';
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
+      <ActivityTracker />
       <DisclaimerModal userId={user?.id} email={user?.email} />
       <AppSidebar />
       <SidebarInset>

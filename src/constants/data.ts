@@ -22,6 +22,15 @@ export const navItems: NavItem[] = [
     items: [] // Empty array as there are no child items for Dashboard
   },
   {
+    title: 'Admin Console',
+    url: '/dashboard/admin',
+    icon: 'user',
+    isActive: false,
+    shortcut: ['a', 'c'],
+    isAdminOnly: true,
+    items: []
+  },
+  {
     title: 'Tools',
     url: '#',
     icon: 'tools',

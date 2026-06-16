@@ -11,7 +11,9 @@ import {
   Eye,
   AlertCircle,
   Globe,
-  User
+  User,
+  Copy,
+  Loader2
 } from 'lucide-react';
 import {
   Table,
@@ -96,6 +98,13 @@ interface Pump {
   is_public: boolean;
   created_at: string;
   updated_at: string;
+  manual_bep_flow?: number | null;
+  pump_class?: string[] | null;
+  application?: string[] | null;
+  impeller_type?: string | null;
+  other_traits?: string[] | null;
+  poles?: number | null;
+  min_temp?: number | null;
 }
 
 const PumpLibraryPage: React.FC = () => {
@@ -107,6 +116,7 @@ const PumpLibraryPage: React.FC = () => {
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('my-pumps');
   const [toggleLoading, setToggleLoading] = useState<string | null>(null);
+  const [duplicateLoading, setDuplicateLoading] = useState<string | null>(null);
 
   const [selectedPumpId, setSelectedPumpId] = useState<string | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
@@ -298,6 +308,94 @@ const PumpLibraryPage: React.FC = () => {
       return;
     }
     router.push(`/dashboard/pumps/edit/${pumpId}`);
+  };
+
+  // Duplicate pump
+  const handleDuplicatePump = async (pump: Pump): Promise<void> => {
+    if (!user?.id) {
+      toast.error('User not authenticated');
+      return;
+    }
+
+    setDuplicateLoading(pump.id);
+    const copiedFiles: string[] = [];
+    const newFiles: { design_sld?: string; data_sheet?: string; image?: string } = {};
+
+    try {
+      // Copy any associated files to prevent deletion side-effects
+      const fileFields = ['design_sld', 'data_sheet', 'image'] as const;
+      for (const field of fileFields) {
+        const sourcePath = pump[field];
+        if (sourcePath) {
+          const ext = sourcePath.split('.').pop() || '';
+          const newPath = `${user.id}/${Date.now()}_duplicate_${field}.${ext}`;
+          
+          const { error: copyError } = await supabase.storage
+            .from('pump-assets')
+            .copy(sourcePath, newPath);
+
+          if (copyError) {
+            console.warn(`Failed to copy storage file ${field}:`, copyError);
+          } else {
+            newFiles[field] = newPath;
+            copiedFiles.push(newPath);
+          }
+        }
+      }
+
+      // Prepare duplicated pump data
+      const duplicatedPumpData = {
+        brand: pump.brand,
+        model: `${pump.model} (Copy)`,
+        kw: pump.kw,
+        rpm: pump.rpm,
+        hz: pump.hz,
+        inlet: pump.inlet,
+        outlet: pump.outlet,
+        configuration: pump.configuration,
+        type: pump.type,
+        voltage: pump.voltage,
+        amps: pump.amps,
+        phases: pump.phases,
+        max_temp: pump.max_temp,
+        pvsq: pump.pvsq,
+        npshr: pump.npshr,
+        efficiency: pump.efficiency,
+        motor_power: pump.motor_power,
+        design_sld: newFiles.design_sld || null,
+        data_sheet: newFiles.data_sheet || null,
+        image: newFiles.image || null,
+        is_public: false, // Keep it private initially
+        user_id: user.id,
+        manual_bep_flow: pump.manual_bep_flow || null,
+        pump_class: pump.pump_class || null,
+        application: pump.application || null,
+        impeller_type: pump.impeller_type || null,
+        other_traits: pump.other_traits || null,
+        poles: pump.poles || null,
+        min_temp: pump.min_temp || null,
+      };
+
+      const { data, error } = await supabase
+        .from('pumps')
+        .insert([duplicatedPumpData])
+        .select('id')
+        .single();
+
+      if (error) throw error;
+
+      toast.success('Pump duplicated successfully!');
+      router.push(`/dashboard/pumps/edit/${data.id}`);
+    } catch (error) {
+      console.error('Error duplicating pump:', error);
+      toast.error('Failed to duplicate pump');
+      // Cleanup any copied storage files on failure
+      if (copiedFiles.length > 0) {
+        await supabase.storage.from('pump-assets').remove(copiedFiles);
+      }
+    } finally {
+      setDuplicateLoading(null);
+    }
   };
 
   // CSV Export
@@ -596,6 +694,23 @@ const PumpLibraryPage: React.FC = () => {
                               disabled={pump.user_id !== user?.id}
                             >
                               <Edit className='h-4 w-4' />
+                            </Button>
+                            <Button
+                              variant='ghost'
+                              size='sm'
+                              onClick={() => handleDuplicatePump(pump)}
+                              title='Duplicate Pump'
+                              disabled={
+                                duplicateLoading !== null ||
+                                deleteLoading === pump.id ||
+                                pump.user_id !== user?.id
+                              }
+                            >
+                              {duplicateLoading === pump.id ? (
+                                <Loader2 className='h-4 w-4 animate-spin' />
+                              ) : (
+                                <Copy className='h-4 w-4' />
+                              )}
                             </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
