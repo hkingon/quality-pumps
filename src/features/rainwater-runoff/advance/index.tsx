@@ -201,6 +201,7 @@ export default function AdvancedStormwaterCalculator() {
 
   /* -- Flow / Detention -- */
   const [flowRate, setFlowRate] = useState<number>(0);
+  const [pumpWellVolume, setPumpWellVolume] = useState<number | null>(null);
   const [detentionVolume, setDetentionVolume] = useState<number | null>(null);
   const [worstDuration, setWorstDuration] = useState<number | null>(null);
   const [maxDuration, setMaxDuration] = useState<number>(6);
@@ -560,6 +561,86 @@ export default function AdvancedStormwaterCalculator() {
     return points;
   };
 
+  /* ---------- Solver: Required Flow from Well Volume ---------- */
+  const getRequiredFlowForWellVolume = (resultsArray: DurationResult[], targetVolM3: number) => {
+    if (resultsArray.length === 0) return { flowRateM3s: 0, finalDetentionM3: 0 };
+    
+    const target = Math.max(0, targetVolM3);
+    const maxPeakFlowM3s = Math.max(...resultsArray.map((r) => r.peakFlow));
+
+    const getDetentionForFlow = (flowM3s: number): number => {
+      let maxVol = 0;
+      for (const r of resultsArray) {
+        let vol = 0;
+        for (let i = 0; i < r.hyetograph.length - 1; i++) {
+          const q1 = Math.max(0, r.hyetograph[i].flowRate - flowM3s);
+          const q2 = Math.max(0, r.hyetograph[i + 1].flowRate - flowM3s);
+          const avg = (q1 + q2) / 2;
+          vol += avg * 60;
+        }
+        if (vol > maxVol) {
+          maxVol = vol;
+        }
+      }
+      return maxVol;
+    };
+
+    const maxDetentionAtZeroFlow = getDetentionForFlow(0);
+    if (target >= maxDetentionAtZeroFlow) {
+      return { flowRateM3s: 0, finalDetentionM3: maxDetentionAtZeroFlow };
+    }
+
+    let low = 0;
+    let high = maxPeakFlowM3s;
+    let iterations = 0;
+
+    while (high - low > 1e-9 && iterations < 50) {
+      const mid = (low + high) / 2;
+      const vol = getDetentionForFlow(mid);
+      if (vol < target) {
+        high = mid;
+      } else {
+        low = mid;
+      }
+      iterations++;
+    }
+
+    return { flowRateM3s: high, finalDetentionM3: getDetentionForFlow(high) };
+  };
+
+  const handleWellVolumeChange = (volumeVal: number) => {
+    setPumpWellVolume(volumeVal);
+    if (allResults.length === 0) return;
+
+    const targetVolM3 = convertVolume(volumeVal, volumeUnit, 'm3');
+    const { flowRateM3s: solvedFlowM3s } = getRequiredFlowForWellVolume(allResults, targetVolM3);
+
+    const flowInUnit = convertFlow(solvedFlowM3s, 'm3/s', flowUnit);
+    const finalFlow = parseFloat(flowInUnit.toFixed(4));
+    setFlowRate(finalFlow);
+
+    // Recalculate detention for all results
+    const updated = allResults.map((r) => {
+      let vol = 0;
+      for (let i = 0; i < r.hyetograph.length - 1; i++) {
+        const q1 = Math.max(0, r.hyetograph[i].flowRate - solvedFlowM3s);
+        const q2 = Math.max(0, r.hyetograph[i + 1].flowRate - solvedFlowM3s);
+        const avg = (q1 + q2) / 2;
+        vol += avg * 60;
+      }
+      return { ...r, detentionVolume: vol };
+    });
+
+    const worst = updated.reduce((max, r) =>
+      r.detentionVolume > max.detentionVolume ? r : max,
+      updated[0]
+    );
+
+    setAllResults(updated);
+    setWorstDuration(worst.duration);
+    setDetentionVolume(convertVolume(worst.detentionVolume, 'm3', volumeUnit));
+  };
+
   /* ---------- Calculate All Durations ---------- */
   const calculateAllHyetographs = () => {
     if (!csvData) {
@@ -619,17 +700,39 @@ export default function AdvancedStormwaterCalculator() {
       return;
     }
 
+    let finalFlowRateM3s = flowRateM3s;
+    if (pumpWellVolume !== null && pumpWellVolume > 0) {
+      const targetVolM3 = convertVolume(pumpWellVolume, volumeUnit, 'm3');
+      const { flowRateM3s: solvedFlowM3s } = getRequiredFlowForWellVolume(results, targetVolM3);
+      finalFlowRateM3s = solvedFlowM3s;
+
+      const flowInUnit = convertFlow(solvedFlowM3s, 'm3/s', flowUnit);
+      setFlowRate(parseFloat(flowInUnit.toFixed(4)));
+    }
+
+    // Now recalculate detention volume for all results using finalFlowRateM3s
+    const updatedResults = results.map((r) => {
+      let vol = 0;
+      for (let i = 0; i < r.hyetograph.length - 1; i++) {
+        const q1 = Math.max(0, r.hyetograph[i].flowRate - finalFlowRateM3s);
+        const q2 = Math.max(0, r.hyetograph[i + 1].flowRate - finalFlowRateM3s);
+        const avg = (q1 + q2) / 2;
+        vol += avg * 60;
+      }
+      return { ...r, detentionVolume: vol };
+    });
+
     // Find worst case (max detention)
-    const worst = results.reduce((max, r) =>
+    const worst = updatedResults.reduce((max, r) =>
       r.detentionVolume > max.detentionVolume ? r : max,
-      results[0]
+      updatedResults[0]
     );
 
-    setAllResults(results);
+    setAllResults(updatedResults);
     setWorstDuration(worst.duration);
     setDetentionVolume(convertVolume(worst.detentionVolume, 'm3', volumeUnit));
     setShowAllHyetographs(true);
-    toast.success(`Generated ${results.length} hyetographs. Worst case: ${worst.durationLabel}`);
+    toast.success(`Generated ${updatedResults.length} hyetographs. Worst case: ${worst.durationLabel}`);
   };
 
   /* ---------- Chart ---------- */
@@ -1297,10 +1400,19 @@ export default function AdvancedStormwaterCalculator() {
                   value={flowUnit}
                   onValueChange={(v) => {
                     const newUnit = v as FlowUnit;
+                    const oldUnit = flowUnit;
                     setFlowUnit(newUnit);
+                    
+                    // Convert flowRate state to the new unit
+                    let newFlowRateVal = flowRate;
+                    if (flowRate > 0) {
+                      newFlowRateVal = parseFloat(convertFlow(flowRate, oldUnit, newUnit).toFixed(4));
+                      setFlowRate(newFlowRateVal);
+                    }
+
                     // Recalculate detention if results exist
                     if (allResults.length > 0) {
-                      const pumpM3s = convertFlow(flowRateRef.current, newUnit, 'm3/s');
+                      const pumpM3s = convertFlow(newFlowRateVal, newUnit, 'm3/s');
                       const updated = allResults.map((r) => {
                         let vol = 0;
                         for (let i = 0; i < r.hyetograph.length - 1; i++) {
@@ -1345,7 +1457,29 @@ export default function AdvancedStormwaterCalculator() {
               </div>
               <div className='space-y-2'>
                 <Label>Volume Unit</Label>
-                <Select value={volumeUnit} onValueChange={(v) => setVolumeUnit(v as VolumeUnit)}>
+                <Select
+                  value={volumeUnit}
+                  onValueChange={(v) => {
+                    const newUnit = v as VolumeUnit;
+                    const oldUnit = volumeUnit;
+                    setVolumeUnit(newUnit);
+                    
+                    // Convert pump well volume if set
+                    if (pumpWellVolume !== null && pumpWellVolume !== undefined && !isNaN(pumpWellVolume)) {
+                      const converted = convertVolume(pumpWellVolume, oldUnit, newUnit);
+                      setPumpWellVolume(parseFloat(converted.toFixed(2)));
+                    }
+
+                    // Convert detention volume output if results exist
+                    if (allResults.length > 0) {
+                      const worst = allResults.reduce((max, r) =>
+                        r.detentionVolume > max.detentionVolume ? r : max,
+                        allResults[0]
+                      );
+                      setDetentionVolume(convertVolume(worst.detentionVolume, 'm3', newUnit));
+                    }
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -1397,8 +1531,28 @@ export default function AdvancedStormwaterCalculator() {
               </div>
             </div>
 
-            {/* Flow rate & calculate */}
-            <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+            {/* Pump Well Volume, Flow Rate, and Required Detention Volume */}
+            <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+              <div className='space-y-2'>
+                <Label>Pump Well Volume ({volumeUnitLabel(volumeUnit)})</Label>
+                <Input
+                  type='number'
+                  value={pumpWellVolume !== null ? pumpWellVolume : ''}
+                  onChange={(e) => {
+                    const val = e.target.value === '' ? null : parseFloat(e.target.value);
+                    if (val === null || isNaN(val)) {
+                      setPumpWellVolume(null);
+                    } else {
+                      handleWellVolumeChange(val);
+                    }
+                  }}
+                  placeholder="e.g. 5.0"
+                  step='0.1'
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Active wet-well volume. Entering this automatically calculates the required pump flow rate.
+                </p>
+              </div>
               <div className='space-y-2'>
                 <Label>Pump Flow Rate ({flowUnitLabel(flowUnit)})</Label>
                 <Input
@@ -1430,17 +1584,43 @@ export default function AdvancedStormwaterCalculator() {
                   }}
                   step='0.01'
                 />
+                <p className="text-[11px] text-muted-foreground">
+                  The discharge rate of the duty pump. Modifying this recalculates the required detention volume.
+                </p>
               </div>
               <div className='space-y-2'>
-                <Label>Detention Volume ({volumeUnitLabel(volumeUnit)})</Label>
+                <Label>Required Detention Volume ({volumeUnitLabel(volumeUnit)})</Label>
                 <Input
                   type='number'
-                  value={detentionVolume !== null ? detentionVolume.toFixed(2) : ''}
+                  value={detentionVolume !== null ? parseFloat(detentionVolume.toFixed(2)) : ''}
                   readOnly
-                  className='bg-muted'
+                  className='bg-muted font-semibold text-foreground'
                 />
+                <p className="text-[11px] text-muted-foreground">
+                  Theoretical minimum storage volume required for the selected pump flow rate.
+                </p>
               </div>
             </div>
+
+            {/* Compliance Alert */}
+            {pumpWellVolume !== null && detentionVolume !== null && (
+              <div className="mt-2">
+                {detentionVolume > pumpWellVolume ? (
+                  <Alert variant="destructive">
+                    <AlertDescription className="flex items-center gap-2 font-medium">
+                      <span>⚠️ <strong>Not Compliant:</strong> Required detention volume ({detentionVolume.toFixed(2)} {volumeUnitLabel(volumeUnit)}) exceeds pump well volume ({pumpWellVolume} {volumeUnitLabel(volumeUnit)}). Increase pump flow rate or well volume.</span>
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <Alert className="bg-green-50 border-green-200 text-green-800 dark:bg-green-900/15 dark:border-green-900/30 dark:text-green-400">
+                    <AlertDescription className="flex items-center gap-2 font-medium">
+                      <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                      <span><strong>Compliant:</strong> Required detention volume ({detentionVolume.toFixed(2)} {volumeUnitLabel(volumeUnit)}) is within the pump well volume ({pumpWellVolume} {volumeUnitLabel(volumeUnit)}).</span>
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            )}
 
             {worstDuration !== null && allResults.length > 0 && (
               <div className='rounded bg-muted p-3 text-sm'>
@@ -1604,6 +1784,7 @@ export default function AdvancedStormwaterCalculator() {
               onClick={() => {
                 setCatchments([{ id: uid(), area: 0, coefficient: 1, toc: 10, aep: '20%' }]);
                 setFlowRate(0);
+                setPumpWellVolume(null);
                 setDetentionVolume(null);
                 setWorstDuration(null);
                 setMaxDuration(6);
