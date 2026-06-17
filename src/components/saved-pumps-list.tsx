@@ -71,13 +71,7 @@ export function SavedPumpsList({
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const [selectedPumpId, setSelectedPumpId] = useState<string | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
-  const [showHidden, setShowHidden] = useState(() => {
-    try {
-      return sessionStorage.getItem('showHiddenPumps') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [showHidden, setShowHidden] = useState(false);
 
   const allPumps = useMemo(() => {
     const ownedPumps = savedPumps.map((pump) => ({
@@ -765,7 +759,7 @@ export function SavedPumpsList({
                   className={`flex items-center justify-between rounded border p-2 transition-colors ${cardStyle.className}`}
                   style={cardStyle.style}
                 >
-                  <div className='mr-2 truncate'>
+                  <div className='min-w-0 flex-1'>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
@@ -780,7 +774,7 @@ export function SavedPumpsList({
                           onClick={() => handleViewPump(pump.id)}
                           aria-label='View pump curves'
                         >
-                          <span className='font-medium'>{pump.name}</span>
+                          <span className='font-medium truncate'>{pump.name}</span>
                           {pump.isPublic && (
                             <span className='rounded bg-blue-600 px-1 py-0.5 text-xs text-white dark:bg-blue-700'>
                               PUBLIC
@@ -802,13 +796,11 @@ export function SavedPumpsList({
                         View pump curves
                       </TooltipContent>
                     </Tooltip>
-                    <div className='text-muted-foreground text-xs'>
-                      Head: {pump.convertedMaxHead.toFixed(1)} {headUnit}, Flow:{' '}
-                      {pump.convertedMaxFlow.toFixed(1)} {flowUnit}
-                    </div>
-                    <div className='flex items-center gap-1 text-muted-foreground text-xs'>
-                      Brand: {pump.brand} | Type:
-                      <div className='flex flex-wrap gap-1 ml-1'>
+                    <div className='flex flex-wrap items-center gap-x-3 gap-y-0.5 text-muted-foreground text-xs mt-0.5'>
+                      <span>Head: {pump.convertedMaxHead.toFixed(1)} {headUnit}, Flow: {pump.convertedMaxFlow.toFixed(1)} {flowUnit}</span>
+                      <span>Brand: {pump.brand}</span>
+                      <span className='flex items-center gap-1'>
+                        Type:
                         {Array.isArray(pump.type) ? (
                           pump.type.map((t) => (
                             <Badge key={t} variant='secondary' className='px-1 py-0 text-[10px] h-4'>
@@ -820,66 +812,56 @@ export function SavedPumpsList({
                             {pump.type || 'N/A'}
                           </Badge>
                         )}
-                      </div>
+                      </span>
+                      {systemCurveData.some(d => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0) && (
+                        <>
+                          <span>
+                            BEP: {pump.bepFlow.toFixed(1)} {flowUnit} at {pump.bepHead.toFixed(1)} {headUnit}
+                          </span>
+                          {!pump.isHidden && pump.score !== Infinity && (() => {
+                            const badge = getSuitabilityBadge(pump.score, pump.isHidden);
+                            return (
+                              <span className='flex flex-wrap items-center gap-1'>
+                                <span className={`rounded px-1 py-0.5 text-[10px] text-white font-medium ${badge.colorClass}`}>
+                                  {badge.label}
+                                </span>
+                                <span className='text-green-600 dark:text-green-400'>
+                                  {dischargeCurveMode === 'or' && pump.bestDutyName
+                                    ? `Score [${pump.bestDutyName}]: ${pump.score.toFixed(1)}`
+                                    : `Score: ${pump.score.toFixed(1)}`}
+                                </span>
+                                {pump.anyOutsideAor && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className='flex items-center gap-0.5 rounded bg-amber-500 px-1 py-0.5 text-[10px] text-white font-medium cursor-default'>
+                                        <AlertTriangle className='h-2.5 w-2.5' />
+                                        Outside AOR
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side='top'>
+                                      Pump is operating outside the Allowable Operating Range (50–140% of BEP flow).
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                                {pump.anyMotorOverload && pump.kw != null && pump.kw > 0 && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className='flex items-center gap-0.5 rounded bg-red-600 px-1 py-0.5 text-[10px] text-white font-medium cursor-default'>
+                                        <AlertTriangle className='h-2.5 w-2.5' />
+                                        Motor overload
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side='top' className='max-w-[220px]'>
+                                      Motor overload risk — duty may exceed rated motor power. Larger motor options may exist; confirm with the manufacturer/engineer.
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </span>
+                            );
+                          })()}
+                        </>
+                      )}
                     </div>
-                    {systemCurveData.some(d => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0) && (
-                      <div className='text-muted-foreground text-xs space-y-0.5'>
-                        <div>
-                          BEP: {pump.bepFlow.toFixed(1)} {flowUnit} at{' '}
-                          {pump.bepHead.toFixed(1)} {headUnit}
-                        </div>
-                        {!pump.isHidden && pump.score !== Infinity && (() => {
-                          const badge = getSuitabilityBadge(pump.score, pump.isHidden);
-                          return (
-                            <div className='flex flex-wrap items-center gap-1 mt-0.5'>
-                              <span className={`rounded px-1 py-0.5 text-[10px] text-white font-medium ${badge.colorClass}`}>
-                                {badge.label}
-                              </span>
-                              <span className='text-green-600 dark:text-green-400'>
-                                {dischargeCurveMode === 'or' && pump.bestDutyName
-                                  ? `Score [${pump.bestDutyName}]: ${pump.score.toFixed(1)}`
-                                  : `Score: ${pump.score.toFixed(1)}`}
-                              </span>
-                              {dischargeCurveMode === 'and' && pump.dutyMetrics && (
-                                <div className='flex flex-wrap gap-1 mt-1 w-full'>
-                                  {pump.dutyMetrics.map((dm) => (
-                                    <span key={dm.dutyName} className='rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-1.5 py-0.5 text-[9px] font-medium border border-gray-200/60 dark:border-gray-700/60'>
-                                      {dm.dutyName}: {dm.score !== Infinity && !isNaN(dm.score) ? dm.score.toFixed(1) : 'Failed'}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                              {pump.anyOutsideAor && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span className='flex items-center gap-0.5 rounded bg-amber-500 px-1 py-0.5 text-[10px] text-white font-medium cursor-default'>
-                                      <AlertTriangle className='h-2.5 w-2.5' />
-                                      Outside AOR
-                                    </span>
-                                  </TooltipTrigger>
-                                  <TooltipContent side='top'>
-                                    Pump is operating outside the Allowable Operating Range (50–140% of BEP flow).
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                              {pump.anyMotorOverload && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span className='flex items-center gap-0.5 rounded bg-red-600 px-1 py-0.5 text-[10px] text-white font-medium cursor-default'>
-                                      <AlertTriangle className='h-2.5 w-2.5' />
-                                      Motor overload
-                                    </span>
-                                  </TooltipTrigger>
-                                  <TooltipContent side='top' className='max-w-[220px]'>
-                                    Motor overload risk — duty may exceed rated motor power. Larger motor options may exist; confirm with the manufacturer/engineer.
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    )}
                   </div>
                   <div className='flex shrink-0 gap-2'>
                     <Button
