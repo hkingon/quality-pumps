@@ -915,10 +915,16 @@ export function getSuitabilityBadge(score: number, isHidden: boolean): {
   label: string;
   colorClass: string;
 } {
-  if (isHidden || !isFinite(score)) return { label: 'Failed', colorClass: 'bg-red-600' };
-  if (score <= 10)  return { label: 'Excellent', colorClass: 'bg-emerald-600' };
-  if (score <= 25)  return { label: 'Good',      colorClass: 'bg-green-500' };
-  if (score <= 50)  return { label: 'Acceptable',colorClass: 'bg-yellow-500' };
-  if (score <= 100) return { label: 'Suboptimal',colorClass: 'bg-orange-500' };
-  return                    { label: 'Unsuitable',colorClass: 'bg-red-500' };
+  // Pump not capable of duty → Failed (grey)
+  if (isHidden || !isFinite(score)) return { label: 'Failed',     colorClass: 'bg-gray-500' };
+  // 0–10   → Excellent (green)
+  if (score <= 10)  return { label: 'Excellent',  colorClass: 'bg-green-600' };
+  // 10–25  → Good (blue)
+  if (score <= 25)  return { label: 'Good',       colorClass: 'bg-blue-600' };
+  // 25–50  → Acceptable (#d97706 amber)
+  if (score <= 50)  return { label: 'Acceptable', colorClass: 'bg-amber-600' };
+  // 50–100 → Suboptimal (#ea580c orange)
+  if (score <= 100) return { label: 'Suboptimal', colorClass: 'bg-orange-600' };
+  // 100+   → Unsuitable (red)
+  return                    { label: 'Unsuitable', colorClass: 'bg-red-600' };
 }

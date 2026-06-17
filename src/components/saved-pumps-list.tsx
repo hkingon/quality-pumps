@@ -670,6 +670,84 @@ export function SavedPumpsList({
           ? [...visible, ...hidden]
           : visible;
 
+        /** Returns Tailwind border + bg classes and an inline style for the
+         *  left-border accent colour, based on score / hidden status. */
+        const getCardStyle = (pump: (typeof displayPumps)[number]): {
+          className: string;
+          style: React.CSSProperties;
+        } => {
+          const hasDuty = systemCurveData.some(
+            (d) => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0
+          );
+
+          // No duty entered — neutral card
+          if (!hasDuty) {
+            return {
+              className:
+                'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900',
+              style: {}
+            };
+          }
+
+          if (pump.isHidden) {
+            // Failed / not capable — grey
+            return {
+              className:
+                'border-gray-400 bg-gray-100 dark:border-gray-600 dark:bg-gray-800',
+              style: { borderLeftColor: '#6b7280', borderLeftWidth: '4px' }
+            };
+          }
+
+          const score = pump.score;
+
+          if (!isFinite(score)) {
+            return {
+              className:
+                'border-gray-400 bg-gray-100 dark:border-gray-600 dark:bg-gray-800',
+              style: { borderLeftColor: '#6b7280', borderLeftWidth: '4px' }
+            };
+          }
+
+          if (score <= 10) {
+            // Excellent — green
+            return {
+              className:
+                'border-green-300 bg-green-50 dark:border-green-700 dark:bg-green-950/40',
+              style: { borderLeftColor: '#16a34a', borderLeftWidth: '4px' }
+            };
+          }
+          if (score <= 25) {
+            // Good — blue
+            return {
+              className:
+                'border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/40',
+              style: { borderLeftColor: '#2563eb', borderLeftWidth: '4px' }
+            };
+          }
+          if (score <= 50) {
+            // Acceptable — amber (#d97706)
+            return {
+              className:
+                'border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/40',
+              style: { borderLeftColor: '#d97706', borderLeftWidth: '4px' }
+            };
+          }
+          if (score <= 100) {
+            // Suboptimal — orange (#ea580c)
+            return {
+              className:
+                'border-orange-300 bg-orange-50 dark:border-orange-700 dark:bg-orange-950/40',
+              style: { borderLeftColor: '#ea580c', borderLeftWidth: '4px' }
+            };
+          }
+          // Unsuitable — red
+          return {
+            className:
+              'border-red-300 bg-red-50 dark:border-red-700 dark:bg-red-950/40',
+            style: { borderLeftColor: '#dc2626', borderLeftWidth: '4px' }
+          };
+        };
+
         return displayPumps.length === 0 ? (
           <div className='text-muted-foreground py-8 text-center'>
             {allPumps.length === 0
@@ -680,14 +758,12 @@ export function SavedPumpsList({
           <ul className='max-h-[400px] space-y-2 overflow-y-auto'>
             {displayPumps.map((pump, index) => {
               const isOnChart = pumpsOnChart.includes(pump.id);
+              const cardStyle = getCardStyle(pump);
               return (
                 <li
                   key={pump.id}
-                  className={`flex items-center justify-between rounded border p-2 ${
-                    pump.isHidden
-                      ? 'border-red-300 bg-red-100 dark:border-red-800 dark:bg-red-950'
-                      : 'border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900'
-                  }`}
+                  className={`flex items-center justify-between rounded border p-2 transition-colors ${cardStyle.className}`}
+                  style={cardStyle.style}
                 >
                   <div className='mr-2 truncate'>
                     <Tooltip>
