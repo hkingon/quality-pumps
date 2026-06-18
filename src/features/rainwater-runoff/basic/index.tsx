@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import RunoffInputs from './RunoffInputs';
 import RainfallSelector from './RainfallSelector';
 import RunoffResults from './RunoffResults';
+import { parseIFDText, getAEPIntensity, type IFDData } from '@/lib/stormwater/ifd-utils';
+import { toast } from 'sonner';
 
 export interface AEPValues {
   '63.2%': number;
@@ -60,7 +62,26 @@ export default function RainwaterCalculator({ locationsData }: Props) {
   const [minPumpFlow, setMinPumpFlow] = useState<number>(10);
   const [allowableDischarge, setAllowableDischarge] = useState<number | ''>('');
 
+  // BOM IFD lookup state (cached per address)
+  const [bomIFDData, setBomIFDData] = useState<IFDData[] | null>(null);
+  const [bomAddressLabel, setBomAddressLabel] = useState<string>('');
+  const [isFetchingBOM, setIsFetchingBOM] = useState(false);
+  const [bomError, setBomError] = useState<string>('');
+
   const resultsRef = useRef<HTMLDivElement>(null);
+
+  // Apply rainfall values from BOM IFD data when duration or AEP changes
+  const applyBOMRainfall = (durationMin: number, aep: string) => {
+    if (!bomIFDData || bomIFDData.length === 0) return;
+    const intensity = getAEPIntensity(bomIFDData, durationMin, aep);
+    if (intensity == null) {
+      setBomError(`Could not determine ${aep} AEP rainfall for ${durationMin} min from BOM data.`);
+      return;
+    }
+    setBomError('');
+    setRainIntensity(Number(intensity.toFixed(2)));
+    setRainDepth(Number((intensity * (durationMin / 60)).toFixed(1)));
+  };
 
   // Sync city/duration selection to rainfall inputs
   useEffect(() => {
@@ -77,6 +98,14 @@ export default function RainwaterCalculator({ locationsData }: Props) {
       }
     }
   }, [selectedCity, selectedDuration, locationsData]);
+
+  // Re-apply cached BOM data when the user changes storm duration or AEP is implied
+  useEffect(() => {
+    if (bomIFDData && bomIFDData.length > 0) {
+      applyBOMRainfall(stormDuration, '10%');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stormDuration, bomIFDData]);
 
   // Main calculation engine
   const results = useMemo(() => {
@@ -181,6 +210,55 @@ export default function RainwaterCalculator({ locationsData }: Props) {
     }
   };
 
+  const handleFetchBOMIFD = async (lat: number, lon: number, addressLabel: string) => {
+    setIsFetchingBOM(true);
+    setBomError('');
+    try {
+      const response = await fetch(
+        `/api/stormwater/fetch-ifd?latitude=${lat}&longitude=${lon}&label=${encodeURIComponent(addressLabel || 'Site')}`
+      );
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `BOM fetch failed (status ${response.status})`);
+      }
+
+      const csvText = await response.text();
+      const { data, error } = parseIFDText(csvText, `BOM_IFD_${lat.toFixed(4)}_${lon.toFixed(4)}.csv`);
+
+      if (error || !data || data.length === 0) {
+        throw new Error(error || 'BOM IFD data could not be parsed.');
+      }
+
+      setBomIFDData(data);
+      setBomAddressLabel(addressLabel || `BOM ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+      setSelectedCity('Custom / Manual');
+
+      const defaultDuration = 120;
+      const defaultAEP = '10%';
+      setStormDuration(defaultDuration);
+      const intensity = getAEPIntensity(data, defaultDuration, defaultAEP);
+      if (intensity == null) {
+        throw new Error(`Could not determine ${defaultAEP} AEP rainfall for ${defaultDuration} min from BOM data.`);
+      }
+      setRainIntensity(Number(intensity.toFixed(2)));
+      setRainDepth(Number((intensity * (defaultDuration / 60)).toFixed(1)));
+
+      toast.success('BOM 10% AEP 120-min rainfall data loaded successfully.');
+    } catch (err: any) {
+      const message = err.message || 'Failed to fetch BOM IFD data.';
+      setBomError(message);
+      toast.error(message);
+    } finally {
+      setIsFetchingBOM(false);
+    }
+  };
+
+  const clearBOMData = () => {
+    setBomIFDData(null);
+    setBomAddressLabel('');
+    setBomError('');
+  };
+
   return (
     <div className='mx-auto w-full max-w-7xl space-y-4 p-0'>
       <div className='grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start'>
@@ -188,12 +266,29 @@ export default function RainwaterCalculator({ locationsData }: Props) {
           <RainfallSelector
             locationsData={locationsData}
             selectedCity={selectedCity}
-            setSelectedCity={setSelectedCity}
+            setSelectedCity={(city) => {
+              if (city !== 'Custom / Manual') {
+                clearBOMData();
+              }
+              setSelectedCity(city);
+            }}
             selectedDuration={selectedDuration}
             setSelectedDuration={setSelectedDuration}
+            onFetchBOMIFD={handleFetchBOMIFD}
+            bomStatus={{
+              loading: isFetchingBOM,
+              error: bomError,
+              loaded: !!bomIFDData && bomIFDData.length > 0,
+              addressLabel: bomAddressLabel,
+            }}
           />
           <RunoffInputs
-            setSelectedCity={setSelectedCity}
+            setSelectedCity={(city) => {
+              if (city !== 'Custom / Manual') {
+                clearBOMData();
+              }
+              setSelectedCity(city);
+            }}
             catchmentArea={catchmentArea}
             setCatchmentArea={setCatchmentArea}
             runoffCoeff={runoffCoeff}

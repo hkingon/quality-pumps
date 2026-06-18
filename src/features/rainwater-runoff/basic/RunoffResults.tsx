@@ -75,6 +75,25 @@ export default function RunoffResults({ results }: RunoffResultsProps) {
     });
   };
 
+  // Scoped status color classes (dual-theme friendly)
+  const statusClasses = {
+    success:
+      'border-emerald-200 bg-emerald-100 text-emerald-800 dark:border-emerald-900/30 dark:bg-emerald-900/30 dark:text-emerald-400',
+    warning:
+      'border-amber-200 bg-amber-100 text-amber-800 dark:border-amber-900/30 dark:bg-amber-900/30 dark:text-amber-400',
+    danger:
+      'border-red-200 bg-red-100 text-red-800 dark:border-red-900/30 dark:bg-red-900/30 dark:text-red-400'
+  };
+
+  const boxClasses = {
+    success:
+      'border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/30 dark:bg-emerald-950/20',
+    danger:
+      'border-red-200 bg-red-50/60 dark:border-red-900/30 dark:bg-red-950/20'
+  };
+
+  const getStatusClass = (type: 'success' | 'warning' | 'danger') => statusClasses[type];
+
   // Determine overall compliance status
   const isFailed = !storagePass || !wetWellMinPass || allowableFail;
   const isWarning = areaWarn || pumpMinWarn || !hasAllowable || recommendationAllowableFail;
@@ -132,10 +151,10 @@ export default function RunoffResults({ results }: RunoffResultsProps) {
               <span className="text-[11px] text-muted-foreground block mt-1">Greater of 1% of catchment area or 3 m³.</span>
             </div>
 
-            <div className="border rounded-xl p-3 bg-muted/5">
+            <div className={`border rounded-xl p-3 ${wetWellMinPass ? boxClasses.success : boxClasses.danger}`}>
               <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider flex items-center justify-between">
                 <span>Active Storage Used</span>
-                <Badge variant={wetWellMinPass ? 'default' : 'destructive'} className="h-4 px-1 text-[9px] uppercase">
+                <Badge className={`h-4 px-1 text-[9px] uppercase ${wetWellMinPass ? getStatusClass('success') : getStatusClass('danger')}`}>
                   {wetWellMinPass ? 'OK' : 'Low'}
                 </Badge>
               </span>
@@ -157,10 +176,10 @@ export default function RunoffResults({ results }: RunoffResultsProps) {
               <span className="text-[11px] text-muted-foreground block mt-1">Based on selected duty pump flow in {duration} min.</span>
             </div>
 
-            <div className="border rounded-xl p-3 bg-muted/5">
+            <div className={`border rounded-xl p-3 ${storagePass ? boxClasses.success : boxClasses.danger}`}>
               <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider flex items-center justify-between">
                 <span>Combined Effective Storage</span>
-                <Badge variant={storagePass ? 'default' : 'destructive'} className="h-4 px-1 text-[9px] uppercase">
+                <Badge className={`h-4 px-1 text-[9px] uppercase ${storagePass ? getStatusClass('success') : getStatusClass('danger')}`}>
                   {storagePass ? 'OK' : 'Short'}
                 </Badge>
               </span>
@@ -220,7 +239,7 @@ export default function RunoffResults({ results }: RunoffResultsProps) {
               <TableRow>
                 <TableCell className="font-semibold">Catchment area</TableCell>
                 <TableCell>
-                  <Badge variant={areaWarn ? 'secondary' : 'default'} className="h-5">
+                  <Badge className={`h-5 ${areaWarn ? getStatusClass('warning') : getStatusClass('success')}`}>
                     {areaWarn ? 'CHECK' : 'OK'}
                   </Badge>
                 </TableCell>
@@ -253,7 +272,7 @@ export default function RunoffResults({ results }: RunoffResultsProps) {
               <TableRow>
                 <TableCell className="font-semibold">Minimum active wet well storage</TableCell>
                 <TableCell>
-                  <Badge variant={wetWellMinPass ? 'default' : 'destructive'} className="h-5">
+                  <Badge className={`h-5 ${wetWellMinPass ? getStatusClass('success') : getStatusClass('danger')}`}>
                     {wetWellMinPass ? 'PASS' : 'FAIL'}
                   </Badge>
                 </TableCell>
@@ -266,7 +285,7 @@ export default function RunoffResults({ results }: RunoffResultsProps) {
               <TableRow>
                 <TableCell className="font-semibold">Combined effective storage</TableCell>
                 <TableCell>
-                  <Badge variant={storagePass ? 'default' : 'destructive'} className="h-5">
+                  <Badge className={`h-5 ${storagePass ? getStatusClass('success') : getStatusClass('danger')}`}>
                     {storagePass ? 'PASS' : 'FAIL'}
                   </Badge>
                 </TableCell>
@@ -288,7 +307,7 @@ export default function RunoffResults({ results }: RunoffResultsProps) {
               <TableRow>
                 <TableCell className="font-semibold">Minimum pump capacity note</TableCell>
                 <TableCell>
-                  <Badge variant={pumpMinWarn ? 'secondary' : 'default'} className="h-5">
+                  <Badge className={`h-5 ${pumpMinWarn ? getStatusClass('warning') : getStatusClass('success')}`}>
                     {pumpMinWarn ? 'BELOW 10 L/s' : 'OK'}
                   </Badge>
                 </TableCell>
@@ -321,7 +340,15 @@ export default function RunoffResults({ results }: RunoffResultsProps) {
               <TableRow>
                 <TableCell className="font-semibold">Allowable discharge limit</TableCell>
                 <TableCell>
-                  <Badge variant={hasAllowable ? (allowableFail ? 'destructive' : 'default') : 'secondary'} className="h-5">
+                  <Badge
+                    className={`h-5 ${
+                      !hasAllowable
+                        ? getStatusClass('warning')
+                        : allowableFail
+                        ? getStatusClass('danger')
+                        : getStatusClass('success')
+                    }`}
+                  >
                     {!hasAllowable ? 'NOT ENTERED' : allowableFail ? 'EXCEEDS' : 'OK'}
                   </Badge>
                 </TableCell>
@@ -338,7 +365,15 @@ export default function RunoffResults({ results }: RunoffResultsProps) {
               <TableRow>
                 <TableCell className="font-semibold">Recommended flow vs discharge limit</TableCell>
                 <TableCell>
-                  <Badge variant={hasAllowable ? (recommendationAllowableFail ? 'destructive' : 'default') : 'secondary'} className="h-5">
+                  <Badge
+                    className={`h-5 ${
+                      !hasAllowable
+                        ? getStatusClass('warning')
+                        : recommendationAllowableFail
+                        ? getStatusClass('danger')
+                        : getStatusClass('success')
+                    }`}
+                  >
                     {!hasAllowable ? 'NOT ENTERED' : recommendationAllowableFail ? 'CONFLICT' : 'OK'}
                   </Badge>
                 </TableCell>

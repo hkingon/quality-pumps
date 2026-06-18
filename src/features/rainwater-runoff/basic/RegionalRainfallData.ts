@@ -1,3 +1,9 @@
+/**
+ * @deprecated
+ * This static regional rainfall data is not currently used by the basic rainwater calculator,
+ * which now sources rainfall either from the built-in `rainfallAUData.json` dataset or via
+ * live BOM IFD lookup. Retained for possible future use.
+ */
 export const rainfallData = {
   "Adelaide": { "5min": 123, "10min": 105, "1hr": 52 },
   "Alice Springs": { "5min": 139, "10min": 120, "1hr": 60 },

@@ -1,3 +1,9 @@
+/**
+ * @deprecated
+ * This gutter pump input component is not currently used by the basic rainwater calculator.
+ * It was part of an earlier experimental flow. Retained for possible future use.
+ */
+
 'use client';
 
 import { Input } from '@/components/ui/input';
