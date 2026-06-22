@@ -35,7 +35,8 @@ import {
   aggregateAndMode,
   aggregateOrMode,
   calculateBep,
-  getSuitabilityBadge
+  getSuitabilityBadge,
+  computePAbsBestPerDuty
 } from '@/lib/pump-scoring';
 
 interface SavedPumpsListProps {
@@ -50,6 +51,9 @@ interface SavedPumpsListProps {
   flowUnit: FlowUnit;
   dischargeCurveMode?: 'and' | 'or';
   numberOfDutyPumps?: number;
+  /** When provided, the authoritative set of pump ids currently on the chart
+   *  (driven by the dashboard) so card removals stay in sync with this list. */
+  activePumpIds?: string[];
 }
 
 export function SavedPumpsList({
@@ -63,7 +67,8 @@ export function SavedPumpsList({
   headUnit,
   flowUnit,
   dischargeCurveMode = 'or',
-  numberOfDutyPumps = 1
+  numberOfDutyPumps = 1,
+  activePumpIds
 }: SavedPumpsListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [pumpsOnChart, setPumpsOnChart] = useState<string[]>([]);
@@ -117,8 +122,12 @@ export function SavedPumpsList({
     [savedPumps]
   );
 
+  // Effective on-chart set: prefer the dashboard-driven ids when provided so that
+  // removals from a pump card immediately reflect here.
+  const effectiveOnChart = activePumpIds ?? pumpsOnChart;
+
   const togglePumpOnChart = (pump: SavedPump) => {
-    const isAdded = pumpsOnChart.includes(pump.id);
+    const isAdded = effectiveOnChart.includes(pump.id);
     if (isAdded) {
       const updatedPumps = pumpsOnChart.filter((id) => id !== pump.id);
       setPumpsOnChart(updatedPumps);
@@ -288,27 +297,14 @@ export function SavedPumpsList({
 
     // --- Two-pass scoring (v2) ---
     // Pass 1 — benchmark: run ALL library pumps (allPumps, not just filtered) at rated
-    // speed r=1 to find P_abs_best per duty. This is the v2 spec Section 6.4 requirement
-    // that the benchmark set B_d ignores UI filters.
-    const prelimBenchmark = allPumps.map((pump) => {
-      const perDuty = validDuties.map((duty) =>
-        calculatePreliminaryDutyMetrics(pump, duty, flowUnit, headUnit, numberOfDutyPumps, 1)
-      );
-      return { pump, perDuty };
-    });
-
-    // P_abs_best per duty: smallest P_abs_total among pumps that pass gate AND are inside AOR
-    const pAbsBestPerDuty: number[] = validDuties.map((_, dutyIdx) => {
-      let best = Infinity;
-      for (const { perDuty } of prelimBenchmark) {
-        const pre = perDuty[dutyIdx];
-        // Benchmark set: must pass gate (rh >= 1) and be inside AOR (rqo in [0.50, 1.40])
-        if (!pre.isHidden && !pre.outsideAor && pre.pAbs < best) {
-          best = pre.pAbs;
-        }
-      }
-      return best !== Infinity ? best : 0;
-    });
+    // speed r=1 to find P_abs_best per duty. The benchmark set B_d ignores UI filters.
+    const pAbsBestPerDuty: number[] = computePAbsBestPerDuty(
+      allPumps,
+      validDuties,
+      flowUnit,
+      headUnit,
+      numberOfDutyPumps
+    );
 
     // Pass 2 — score only the visible (filtered) pumps under their actual speed
     const preliminariesForFiltered = filtered.map((pump) => {
@@ -751,7 +747,7 @@ export function SavedPumpsList({
         ) : (
           <ul className='max-h-[400px] space-y-2 overflow-y-auto'>
             {displayPumps.map((pump, index) => {
-              const isOnChart = pumpsOnChart.includes(pump.id);
+              const isOnChart = effectiveOnChart.includes(pump.id);
               const cardStyle = getCardStyle(pump);
               return (
                 <li

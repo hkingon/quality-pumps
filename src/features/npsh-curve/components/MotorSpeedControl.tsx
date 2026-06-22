@@ -6,12 +6,28 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Info } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Info, X, FileText } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger
 } from '@/components/ui/tooltip';
+
+/** Selection metrics shown on the per-pump card (and reused by the report). */
+export interface CardMetrics {
+  capable: boolean;
+  score: number;
+  badge: { label: string; colorClass: string };
+  model?: string;
+  pumpType?: string;
+  dutyFlow?: number;
+  dutyHead?: number;
+  efficiencyPct?: number;
+  absorbedKW?: number;
+  kwhPerML?: number;
+  bepPct?: number;
+}
 
 interface MotorSpeedControlProps {
   pumpId: string;
@@ -23,6 +39,23 @@ interface MotorSpeedControlProps {
   enabled: boolean;
   onSpeedChange: (pumpId: string, rpm: number, hz: number) => void;
   onEnabledChange: (pumpId: string, enabled: boolean) => void;
+  metrics?: CardMetrics;
+  flowUnit?: string;
+  headUnit?: string;
+  onRemove?: (pumpId: string) => void;
+  onShowReport?: (pumpId: string) => void;
+}
+
+const fmt = (v: number | undefined, digits = 1): string =>
+  v === undefined || !isFinite(v) ? '—' : v.toFixed(digits);
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className='space-y-0.5'>
+      <p className='text-muted-foreground text-xs'>{label}</p>
+      <p className='text-sm font-semibold'>{value}</p>
+    </div>
+  );
 }
 
 export function MotorSpeedControl({
@@ -34,7 +67,12 @@ export function MotorSpeedControl({
   currentHz,
   enabled,
   onSpeedChange,
-  onEnabledChange
+  onEnabledChange,
+  metrics,
+  flowUnit = 'L/min',
+  headUnit = 'm',
+  onRemove,
+  onShowReport
 }: MotorSpeedControlProps) {
   const [localRpm, setLocalRpm] = useState(currentRpm.toFixed(0));
   const [localHz, setLocalHz] = useState(currentHz.toFixed(1));
@@ -81,11 +119,75 @@ export function MotorSpeedControl({
   const headMultiplier = speedRatio * speedRatio;
   const powerMultiplier = speedRatio * speedRatio * speedRatio;
 
+  const displayName = metrics?.model || pumpName;
+  const capable = metrics ? metrics.capable : true;
+
   return (
     <Card className='space-y-4 p-4'>
+      {/* Header: model + status badge + remove */}
+      <div className='flex items-start justify-between gap-2'>
+        <div className='min-w-0'>
+          <div className='flex items-center gap-2'>
+            <Label className='truncate font-semibold'>{displayName}</Label>
+            {metrics && (
+              <Badge
+                variant='secondary'
+                className='flex items-center gap-1.5 whitespace-nowrap'
+              >
+                <span
+                  className={`inline-block h-2 w-2 rounded-full ${metrics.badge.colorClass}`}
+                />
+                {metrics.badge.label}
+              </Badge>
+            )}
+          </div>
+          {metrics?.pumpType && (
+            <p className='text-muted-foreground mt-0.5 truncate text-xs'>
+              {metrics.pumpType}
+            </p>
+          )}
+        </div>
+        {onRemove && (
+          <Button
+            variant='ghost'
+            size='icon'
+            className='text-muted-foreground hover:text-destructive h-7 w-7 shrink-0 cursor-pointer'
+            onClick={() => onRemove(pumpId)}
+            title='Remove from graph'
+          >
+            <X className='h-4 w-4' />
+          </Button>
+        )}
+      </div>
+
+      {/* Selection metrics */}
+      {metrics &&
+        (capable ? (
+          <div className='bg-muted/50 grid grid-cols-3 gap-3 rounded-lg p-3'>
+            <Metric label='Score' value={fmt(metrics.score, 1)} />
+            <Metric
+              label='Actual duty'
+              value={
+                metrics.dutyFlow !== undefined
+                  ? `${fmt(metrics.dutyFlow, 1)} ${flowUnit} @ ${fmt(metrics.dutyHead, 1)} ${headUnit}`
+                  : '—'
+              }
+            />
+            <Metric label='Efficiency' value={`${fmt(metrics.efficiencyPct, 0)}%`} />
+            <Metric label='Absorbed' value={`${fmt(metrics.absorbedKW, 2)} kW`} />
+            <Metric label='Energy' value={`${fmt(metrics.kwhPerML, 1)} kWh/ML`} />
+            <Metric label='BEP' value={`${fmt(metrics.bepPct, 0)}%`} />
+          </div>
+        ) : (
+          <div className='rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300'>
+            Pump not capable of the duty (no operating point within the curve).
+          </div>
+        ))}
+
+      {/* Speed adjustment */}
       <div className='flex items-center justify-between'>
         <div className='flex items-center gap-2'>
-          <Label className='font-semibold'>{pumpName} - Motor Speed</Label>
+          <Label className='text-sm font-medium'>Motor Speed</Label>
           <Tooltip>
             <TooltipTrigger>
               <Info className='text-muted-foreground h-4 w-4' />
@@ -205,6 +307,18 @@ export function MotorSpeedControl({
             </div>
           )}
         </>
+      )}
+
+      {/* Full report */}
+      {onShowReport && (
+        <Button
+          variant='outline'
+          className='w-full cursor-pointer'
+          onClick={() => onShowReport(pumpId)}
+        >
+          <FileText className='mr-2 h-4 w-4' />
+          Show full report
+        </Button>
       )}
     </Card>
   );

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { DischargeCurveChart } from './discharge-curve-chart';
 import { NpshCurveChart } from './npsh-curve-chart';
 import { PumpInputs } from '@/components/pump-inputs';
@@ -32,9 +32,17 @@ import {
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/contexts/auth-context';
 import { Input } from '@/components/ui/input';
-import { MotorSpeedControl } from './MotorSpeedControl';
+import { MotorSpeedControl, CardMetrics } from './MotorSpeedControl';
+import { PumpReport } from './PumpReport';
 import { Zap } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import {
+  scorePumpForDuties,
+  computePAbsBestPerDuty,
+  representativeDuty,
+  energyIntensityKWhPerML,
+  getSuitabilityBadge
+} from '@/lib/pump-scoring';
 
 interface PerformancePoint {
   head: number;
@@ -360,6 +368,127 @@ export function PumpCurveDashboard() {
     }
   };
 
+  // Which pump's full report dialog is open (null = closed)
+  const [reportPumpId, setReportPumpId] = useState<string | null>(null);
+
+  // Full library set (saved + public), used as the scoring benchmark population.
+  const allPumps = useMemo(
+    () => [...savedPumps, ...publicPumps],
+    [savedPumps, publicPumps]
+  );
+
+  // Remove a pump from the chart via its card, keeping speed controls and the
+  // SavedPumpsList checkbox (pumpsOnChart) in sync.
+  const handleRemoveFromCard = (pumpId: string) => {
+    const active = activeSavedPumps.find((p) => p.id === pumpId);
+    if (active) removeSavedPumpFromChart(active as unknown as SavedPump);
+    setMotorSpeedControls((prev) => {
+      const next = { ...prev };
+      delete next[pumpId];
+      return next;
+    });
+    try {
+      const stored = sessionStorage.getItem('pumpsOnChart');
+      if (stored) {
+        const ids: string[] = JSON.parse(stored);
+        sessionStorage.setItem(
+          'pumpsOnChart',
+          JSON.stringify(ids.filter((id) => id !== pumpId))
+        );
+      }
+    } catch {
+      /* ignore */
+    }
+    if (reportPumpId === pumpId) setReportPumpId(null);
+  };
+
+  // Per-active-pump selection metrics for the cards (and report), scored against
+  // the discharge system curves at each pump's current card speed.
+  const activePumpMetrics = useMemo<Record<string, CardMetrics>>(() => {
+    const validDuties = dischargeSystemCurveData.filter(
+      (d) => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0
+    );
+    const map: Record<string, CardMetrics> = {};
+    if (validDuties.length === 0) {
+      for (const active of activeSavedPumps) {
+        const orig = allPumps.find((p) => p.id === active.id);
+        map[active.id] = {
+          capable: false,
+          score: Infinity,
+          badge: { label: '—', colorClass: 'bg-gray-400' },
+          model: orig?.model,
+          pumpType: orig?.type?.join(', ')
+        };
+      }
+      return map;
+    }
+
+    const pAbsBest = computePAbsBestPerDuty(
+      allPumps,
+      validDuties,
+      flowUnit,
+      headUnit,
+      numberOfDutyPumps
+    );
+
+    for (const active of activeSavedPumps) {
+      const orig = allPumps.find((p) => p.id === active.id);
+      if (!orig) continue;
+      const control = motorSpeedControls[active.id];
+      const r =
+        control && control.baseRpm ? control.currentRpm / control.baseRpm : 1;
+
+      const result = scorePumpForDuties(
+        orig,
+        validDuties,
+        flowUnit,
+        headUnit,
+        dischargeCurveMode,
+        pAbsBest,
+        numberOfDutyPumps,
+        r
+      );
+      const rep = representativeDuty(result.dutyMetrics, dischargeCurveMode);
+
+      if (!rep || result.isHidden) {
+        map[active.id] = {
+          capable: false,
+          score: result.finalScore,
+          badge: getSuitabilityBadge(result.finalScore, true),
+          model: orig.model,
+          pumpType: orig.type?.join(', ')
+        };
+        continue;
+      }
+
+      const dutyFlow = convertFlow(rep.operatingPoint.flow, orig.flowUnit, flowUnit);
+      const dutyHead = convertHead(rep.operatingPoint.head, orig.headUnit, headUnit);
+      map[active.id] = {
+        capable: true,
+        score: result.finalScore,
+        badge: getSuitabilityBadge(result.finalScore, false),
+        model: orig.model,
+        pumpType: orig.type?.join(', '),
+        dutyFlow,
+        dutyHead,
+        efficiencyPct: rep.eta * 100,
+        absorbedKW: rep.pAbs,
+        kwhPerML: energyIntensityKWhPerML(rep.pAbs, dutyFlow, flowUnit),
+        bepPct: rep.rqo * 100
+      };
+    }
+    return map;
+  }, [
+    activeSavedPumps,
+    motorSpeedControls,
+    dischargeSystemCurveData,
+    flowUnit,
+    headUnit,
+    dischargeCurveMode,
+    numberOfDutyPumps,
+    allPumps
+  ]);
+
 
   useEffect(() => {
     if (activeSavedPumps.length > 0) {
@@ -674,12 +803,16 @@ export function PumpCurveDashboard() {
     if (activeSavedPumps.length === 0) {
       setSegmentedPumpCurves([]);
       setSegmentedModifiedPumpCurves([]);
+      setSegmentedCombinedPumpCurves([]);
+      setSegmentedModifiedCombinedPumpCurves([]);
       setSegmentedNpshCurves([]);
       setSegmentedModifiedNpshCurves([]);
       setDischargeSystemCurvePoints([]);
       setSuctionCurvePoints([]);
       setBepPoints([]);
       setModifiedBepPoints([]);
+      setCombinedBepPoints([]);
+      setModifiedCombinedBepPoints([]);
       setNpshBepPoints([]);
       setModifiedNpshBepPoints([]);
       setOverallMaxHead(0); // Separate state for discharge head
@@ -1777,6 +1910,11 @@ export function PumpCurveDashboard() {
                         enabled={control.enabled}
                         onSpeedChange={handleMotorSpeedChange}
                         onEnabledChange={handleSpeedEnabledChange}
+                        metrics={activePumpMetrics[pump.id]}
+                        flowUnit={flowUnit}
+                        headUnit={headUnit}
+                        onRemove={handleRemoveFromCard}
+                        onShowReport={setReportPumpId}
                       />
 
                       {/* Conditionally render EnergySavingsDisplay */}
@@ -1920,9 +2058,84 @@ export function PumpCurveDashboard() {
             flowUnit={flowUnit}
             dischargeCurveMode={dischargeCurveMode}
             numberOfDutyPumps={numberOfDutyPumps}
+            activePumpIds={activeSavedPumps.map((p) => p.id)}
           />
         </Card>
       </div>
+
+      {reportPumpId &&
+        (() => {
+          const reportPump = allPumps.find((p) => p.id === reportPumpId);
+          const idx = activeSavedPumps.findIndex((p) => p.id === reportPumpId);
+          if (!reportPump || idx < 0) return null;
+          const c = motorSpeedControls[reportPumpId];
+          const speedRatio = c && c.baseRpm ? c.currentRpm / c.baseRpm : 1;
+
+          // Single-pump slices of the dashboard's per-pump chart arrays.
+          const dischargeChartProps = {
+            pumpData: [activeSavedPumps[idx]],
+            dischargeSystemCurveData,
+            dischargeSystemCurvePoints,
+            bepPoints: bepPoints[idx] ? [bepPoints[idx]] : [],
+            modifiedBepPoints: modifiedBepPoints[idx] ? [modifiedBepPoints[idx]] : [],
+            overallMaxHead,
+            overallMaxFlow: overallMaxFlowDischarge,
+            flowUnit,
+            headUnit,
+            segmentedPumpCurves: segmentedPumpCurves[idx] ? [segmentedPumpCurves[idx]] : [],
+            segmentedModifiedPumpCurves: segmentedModifiedPumpCurves[idx]
+              ? [segmentedModifiedPumpCurves[idx]]
+              : [],
+            numberOfDutyPumps: 1,
+            segmentedCombinedPumpCurves: [],
+            segmentedModifiedCombinedPumpCurves: [],
+            combinedBepPoints: [],
+            modifiedCombinedBepPoints: []
+          };
+          const npshChartProps = {
+            pumpData: [activeSavedPumps[idx]],
+            suctionCurveData,
+            suctionCurvePoints,
+            npshBepPoints: npshBepPoints[idx] ? [npshBepPoints[idx]] : [],
+            modifiedNpshBepPoints: modifiedNpshBepPoints[idx]
+              ? [modifiedNpshBepPoints[idx]]
+              : [],
+            overallMaxNpsh,
+            overallMinNpsh,
+            overallMaxFlow: overallMaxFlowNpsh,
+            flowUnit,
+            headUnit,
+            segmentedNpshCurves: segmentedNpshCurves[idx] ? [segmentedNpshCurves[idx]] : [],
+            segmentedModifiedNpshCurves: segmentedModifiedNpshCurves[idx]
+              ? [segmentedModifiedNpshCurves[idx]]
+              : []
+          };
+
+          return (
+            <PumpReport
+              pump={reportPump}
+              speedRatio={speedRatio}
+              dischargeSystemCurveData={dischargeSystemCurveData}
+              suctionCurveData={suctionCurveData}
+              flowUnit={flowUnit}
+              headUnit={headUnit}
+              dischargeCurveMode={dischargeCurveMode}
+              numberOfDutyPumps={numberOfDutyPumps}
+              pAbsBestPerDuty={computePAbsBestPerDuty(
+                allPumps,
+                dischargeSystemCurveData.filter(
+                  (d) => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0
+                ),
+                flowUnit,
+                headUnit,
+                numberOfDutyPumps
+              )}
+              dischargeChartProps={dischargeChartProps}
+              npshChartProps={npshChartProps}
+              onClose={() => setReportPumpId(null)}
+            />
+          );
+        })()}
     </div>
   );
 }

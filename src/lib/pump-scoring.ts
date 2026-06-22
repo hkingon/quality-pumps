@@ -88,6 +88,7 @@ export interface DutyMetric {
   operatingPoint: { flow: number; head: number };
   rh: number;
   rqo: number; // operating-point flow ratio
+  eta: number; // efficiency at duty (0–1)
 }
 
 export interface PumpScoringResult {
@@ -116,6 +117,7 @@ export interface PreliminaryDutyMetric {
   rh: number;
   rqo: number;
   speedRatio: number;
+  eta: number; // efficiency at duty (0–1)
 }
 
 // =============================================================================
@@ -584,6 +586,7 @@ export function calculatePreliminaryDutyMetrics(
     rh: 0,
     rqo: 0,
     speedRatio: 1,
+    eta: 0,
     ...extra,
   });
 
@@ -726,6 +729,7 @@ export function calculatePreliminaryDutyMetrics(
     rh,
     rqo,
     speedRatio: r,
+    eta,
   };
 }
 
@@ -754,6 +758,7 @@ export function finalizeDutyMetrics(
       operatingPoint: pre.operatingPoint,
       rh: pre.rh,
       rqo: pre.rqo,
+      eta: pre.eta,
       score: Infinity,
     };
   }
@@ -789,6 +794,7 @@ export function finalizeDutyMetrics(
     operatingPoint: pre.operatingPoint,
     rh: pre.rh,
     rqo: pre.rqo,
+    eta: pre.eta,
     score: sd,
   };
 }
@@ -867,7 +873,8 @@ export function scorePumpForDuties(
   globalHeadUnit: HeadUnit,
   dischargeCurveMode: 'and' | 'or',
   pAbsBestPerDuty: number[],
-  numberOfDutyPumps: number = 1
+  numberOfDutyPumps: number = 1,
+  rOverride?: number
 ): PumpScoringResult {
   if (duties.length === 0 || pAbsBestPerDuty.length !== duties.length) {
     return {
@@ -878,7 +885,7 @@ export function scorePumpForDuties(
   }
 
   const preliminaries = duties.map(duty =>
-    calculatePreliminaryDutyMetrics(pump, duty, globalFlowUnit, globalHeadUnit, numberOfDutyPumps)
+    calculatePreliminaryDutyMetrics(pump, duty, globalFlowUnit, globalHeadUnit, numberOfDutyPumps, rOverride)
   );
 
   const finalized = preliminaries.map((pre, i) =>
@@ -931,4 +938,68 @@ export function getSuitabilityBadge(score: number, isHidden: boolean): {
   if (score <= 100) return { label: 'Suboptimal', colorClass: 'bg-orange-600' };
   // 100+   → Unsuitable (red)
   return                    { label: 'Unsuitable', colorClass: 'bg-red-600' };
+}
+
+// =============================================================================
+// Benchmark + card/report helpers
+// =============================================================================
+
+/**
+ * Pass-1 benchmark: P_abs_best per duty — the smallest absorbed power among ALL
+ * library pumps that pass the capability gate AND sit inside the AOR, evaluated at
+ * rated speed (r=1). Shared by the saved-pumps list and the curve dashboard.
+ */
+export function computePAbsBestPerDuty(
+  allPumps: SavedPump[],
+  duties: SystemCurveData[],
+  flowUnit: FlowUnit,
+  headUnit: HeadUnit,
+  numberOfDutyPumps: number = 1
+): number[] {
+  const prelim = allPumps.map((pump) =>
+    duties.map((duty) =>
+      calculatePreliminaryDutyMetrics(pump, duty, flowUnit, headUnit, numberOfDutyPumps, 1)
+    )
+  );
+
+  return duties.map((_, dutyIdx) => {
+    let best = Infinity;
+    for (const perDuty of prelim) {
+      const pre = perDuty[dutyIdx];
+      if (!pre.isHidden && !pre.outsideAor && pre.pAbs < best) best = pre.pAbs;
+    }
+    return best !== Infinity ? best : 0;
+  });
+}
+
+/**
+ * Energy intensity in kWh/ML = absorbed power (kW) ÷ volumetric flow (ML/h).
+ * Returns 0 when inputs are not usable.
+ */
+export function energyIntensityKWhPerML(
+  pAbsKW: number,
+  flow: number,
+  flowUnit: FlowUnit
+): number {
+  if (!isFinite(pAbsKW) || pAbsKW <= 0 || flow <= 0) return 0;
+  const flowLmin = convertFlow(flow, flowUnit, 'L/min');
+  const mlPerHour = (flowLmin * 60) / 1_000_000; // L/min → L/h → ML/h
+  if (mlPerHour <= 0) return 0;
+  return pAbsKW / mlPerHour;
+}
+
+/**
+ * The duty that drives the aggregate score: best-passing (lowest score) in OR mode,
+ * worst-passing (highest score) in AND mode. Returns null if no duty passes.
+ */
+export function representativeDuty(
+  metrics: DutyMetric[],
+  mode: 'and' | 'or'
+): DutyMetric | null {
+  const passed = metrics.filter((m) => !m.isHidden && m.canMeet);
+  if (passed.length === 0) return null;
+  if (mode === 'or') {
+    return passed.reduce((best, m) => (m.score < best.score ? m : best), passed[0]);
+  }
+  return passed.reduce((worst, m) => (m.score > worst.score ? m : worst), passed[0]);
 }
