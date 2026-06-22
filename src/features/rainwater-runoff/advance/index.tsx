@@ -48,6 +48,14 @@ import Papa from 'papaparse';
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/contexts/auth-context';
 import { toast } from 'sonner';
+import {
+  InfiltrationType,
+  AMC,
+  INFILTRATION_TYPES,
+  AMC_OPTIONS,
+  SOIL_TYPES,
+  infiltrationIntensity
+} from '@/lib/stormwater/horton-infiltration';
 
 ChartJS.register(
   CategoryScale,
@@ -64,9 +72,13 @@ ChartJS.register(
 interface Catchment {
   id: string;
   area: number;
-  coefficient: number;
   toc: number;
   aep: string;
+  infiltrationType: InfiltrationType; // soil/ground type for Horton infiltration
+  amc: AMC; // antecedent moisture condition (soil types only)
+  customF0?: number; // mm/h, when infiltrationType === 'Custom'
+  customFc?: number; // mm/h, when infiltrationType === 'Custom'
+  coefficient?: number; // legacy runoff coefficient — ignored by calc, kept for back-compat
 }
 
 interface IFDData {
@@ -106,6 +118,17 @@ type VolumeUnit = 'm3' | 'L' | 'kL';
 
 /* ---------- Helpers ---------- */
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+/**
+ * Normalize catchments loaded from storage. Legacy projects only have a runoff
+ * coefficient and no infiltration fields, so default them to Hardstand (zero loss).
+ */
+const normalizeCatchments = (catchments: Catchment[] = []): Catchment[] =>
+  catchments.map((c) => ({
+    ...c,
+    infiltrationType: c.infiltrationType ?? 'Hardstand',
+    amc: c.amc ?? 'Max'
+  }));
 
 const aepOptions = [
   '63.2%',
@@ -191,7 +214,7 @@ export default function AdvancedStormwaterCalculator() {
 
   /* -- Catchments -- */
   const [catchments, setCatchments] = useState<Catchment[]>([
-    { id: uid(), area: 0, coefficient: 1, toc: 10, aep: '20%' }
+    { id: uid(), area: 0, toc: 10, aep: '20%', infiltrationType: 'Hardstand', amc: 'Max' }
   ]);
 
   /* -- Units -- */
@@ -258,7 +281,7 @@ export default function AdvancedStormwaterCalculator() {
   const addCatchment = () => {
     setCatchments((prev) => [
       ...prev,
-      { id: uid(), area: 0, coefficient: 1, toc: 10, aep: '20%' }
+      { id: uid(), area: 0, toc: 10, aep: '20%', infiltrationType: 'Hardstand', amc: 'Max' }
     ]);
   };
 
@@ -540,20 +563,27 @@ export default function AdvancedStormwaterCalculator() {
     const maxTc = Math.max(1, Math.round(maxTcRaw));
 
     // Generate combined hyetograph by summing individual catchment trapezoids.
-    // Each catchment uses its own Tc and AEP to compute its flow contribution
-    // at every time step. The combined flow is the pointwise sum.
+    // Each catchment uses its own Tc and AEP to compute its gross rainfall flow
+    // contribution at every time step, then subtracts the Horton infiltration
+    // rate at that time (mm/h). The per-catchment net flow is floored at 0 before
+    // the pointwise sum, matching the reference spreadsheet.
     const totalTime = duration + maxTc;
     for (let t = 0; t <= totalTime; t++) {
       let flowRate = 0;
       for (const c of catchments) {
-        if (!c.area || !c.coefficient || !c.toc) continue;
+        if (!c.area || !c.toc) continue;
         const I = interpolateIntensity(duration, c.aep);
         if (!I) continue;
-        const peakFlowC = (c.coefficient * I * c.area) / 3_600_000;
+        // Gross rainfall flow (coefficient = 1) shaped by the time-of-concentration trapezoid.
+        const grossPeak = (I * c.area) / 3_600_000;
         const tc = Math.max(1, Math.round(c.toc));
         const ramp1 = Math.max(0, Math.min(t, tc));
         const ramp2 = Math.max(0, Math.min(t - duration, tc));
-        flowRate += (peakFlowC / tc) * (ramp1 - ramp2);
+        const rainfallAtT = (grossPeak / tc) * (ramp1 - ramp2);
+        // Horton infiltration loss at this time step (t in minutes from storm start).
+        const fIntensity = infiltrationIntensity(c, t);
+        const infiltrationFlow = (fIntensity * c.area) / 3_600_000;
+        flowRate += Math.max(0, rainfallAtT - infiltrationFlow);
       }
       points.push({ time: t, flowRate });
     }
@@ -887,7 +917,7 @@ export default function AdvancedStormwaterCalculator() {
         data?.map((d) => ({
           id: d.id,
           name: d.name,
-          catchments: d.catchments,
+          catchments: normalizeCatchments(d.catchments),
           flowRate: d.flow_rate,
           detentionVolume: d.detention_volume,
           worstDuration: d.worst_duration,
@@ -1291,7 +1321,8 @@ export default function AdvancedStormwaterCalculator() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Area (m²)</TableHead>
-                    <TableHead>Runoff Coefficient</TableHead>
+                    <TableHead>Infiltration</TableHead>
+                    <TableHead>AMC / Custom (mm/h)</TableHead>
                     <TableHead>ToC (min)</TableHead>
                     <TableHead>ARI/AEP</TableHead>
                     <TableHead className='w-24'></TableHead>
@@ -1311,21 +1342,71 @@ export default function AdvancedStormwaterCalculator() {
                         />
                       </TableCell>
                       <TableCell>
-                        <Input
-                          type='number'
-                          value={c.coefficient || ''}
-                          step='0.01'
-                          min='0'
-                          max='1'
-                          onChange={(e) =>
-                            updateCatchment(
-                              c.id,
-                              'coefficient',
-                              parseFloat(e.target.value) || 0
-                            )
+                        <Select
+                          value={c.infiltrationType}
+                          onValueChange={(val) =>
+                            updateCatchment(c.id, 'infiltrationType', val as InfiltrationType)
                           }
-                          className='w-28'
-                        />
+                        >
+                          <SelectTrigger className='w-36'>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {INFILTRATION_TYPES.map((t) => (
+                              <SelectItem key={t} value={t}>
+                                {t}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        {SOIL_TYPES.includes(c.infiltrationType) ? (
+                          <Select
+                            value={c.amc}
+                            onValueChange={(val) =>
+                              updateCatchment(c.id, 'amc', val as AMC)
+                            }
+                          >
+                            <SelectTrigger className='w-24'>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {AMC_OPTIONS.map((a) => (
+                                <SelectItem key={a} value={a}>
+                                  {a === 'Max' ? 'Max' : `AMC ${a}`}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : c.infiltrationType === 'Custom' ? (
+                          <div className='flex items-center gap-1'>
+                            <Input
+                              type='number'
+                              value={c.customF0 ?? ''}
+                              min='0'
+                              placeholder='f₀'
+                              title='Initial infiltration rate f₀ (mm/h)'
+                              onChange={(e) =>
+                                updateCatchment(c.id, 'customF0', parseFloat(e.target.value) || 0)
+                              }
+                              className='w-20'
+                            />
+                            <Input
+                              type='number'
+                              value={c.customFc ?? ''}
+                              min='0'
+                              placeholder='f꜀'
+                              title='Final infiltration rate f꜀ (mm/h)'
+                              onChange={(e) =>
+                                updateCatchment(c.id, 'customFc', parseFloat(e.target.value) || 0)
+                              }
+                              className='w-20'
+                            />
+                          </div>
+                        ) : (
+                          <span className='text-muted-foreground text-sm'>—</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className='flex items-center gap-2'>
@@ -1782,7 +1863,7 @@ export default function AdvancedStormwaterCalculator() {
               size='sm'
               className='w-full cursor-pointer'
               onClick={() => {
-                setCatchments([{ id: uid(), area: 0, coefficient: 1, toc: 10, aep: '20%' }]);
+                setCatchments([{ id: uid(), area: 0, toc: 10, aep: '20%', infiltrationType: 'Hardstand', amc: 'Max' }]);
                 setFlowRate(0);
                 setPumpWellVolume(null);
                 setDetentionVolume(null);
