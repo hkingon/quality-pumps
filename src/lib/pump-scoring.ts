@@ -701,8 +701,12 @@ export function calculatePreliminaryDutyMetrics(
   const pc = (hasEfficiency || hasPowerCurve) ? 0 : (usedEstimate ? 1 : 0);
 
   // Section 8 — Motor overload flag
+  // Only meaningful when we have an actual motor power curve, since pAbsPerPump
+  // is motor input power derived from the curve. Without a curve, pAbsPerPump
+  // is the estimated pump shaft power, which is not comparable to rated motor kw.
+  const hasMotorPowerCurve = !!(pump.motorPower && pump.motorPower.length > 0);
   const ratedMotorKw = pump.kw;
-  const motorOverload = ratedMotorKw != null && ratedMotorKw > 0
+  const motorOverload = hasMotorPowerCurve && ratedMotorKw != null && ratedMotorKw > 0
     ? pAbsPerPump > ratedMotorKw
     : false;
 

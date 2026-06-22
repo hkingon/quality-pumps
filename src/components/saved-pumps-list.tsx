@@ -843,7 +843,9 @@ export function SavedPumpsList({
                                     </TooltipContent>
                                   </Tooltip>
                                 )}
-                                {pump.anyMotorOverload && pump.kw != null && pump.kw > 0 && (
+                                {pump.anyMotorOverload
+                                  && pump.kw != null && pump.kw > 0
+                                  && pump.motorPower && pump.motorPower.length > 0 && (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <span className='flex items-center gap-0.5 rounded bg-red-600 px-1 py-0.5 text-[10px] text-white font-medium cursor-default'>
