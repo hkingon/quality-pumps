@@ -689,12 +689,15 @@ export default function AdvancedStormwaterCalculator() {
     const minTcRaw = Math.min(...catchments.filter((c) => c.toc > 0).map((c) => c.toc));
     const minTc = Math.max(1, Math.round(minTcRaw));
 
-    // Create storm durations at 6-minute intervals starting at minTc
+    // Interval between storm durations = ~1.6667% of the max storm duration (min 1 min).
+    const interval = Math.max(1, Math.round(maxDurationMin / 60));
+
+    // Create storm durations at `interval`-minute steps starting at minTc
     const targetDurations: number[] = [];
     const firstDuration = minTc;
     targetDurations.push(firstDuration);
-    const nextMultipleOf6 = Math.ceil((firstDuration + 0.0001) / 6) * 6;
-    for (let d = nextMultipleOf6; d <= maxDurationMin; d += 6) {
+    const nextMultiple = Math.ceil((firstDuration + 0.0001) / interval) * interval;
+    for (let d = nextMultiple; d <= maxDurationMin; d += interval) {
       targetDurations.push(d);
     }
 
