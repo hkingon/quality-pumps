@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +16,8 @@ import {
   energyIntensityKWhPerML,
   getSuitabilityBadge,
   calculateBep,
-  SCORING_CONFIG
+  SCORING_CONFIG,
+  type DutyMetric
 } from '@/lib/pump-scoring';
 
 interface PumpReportProps {
@@ -33,10 +35,31 @@ interface PumpReportProps {
   onClose: () => void;
 }
 
+const NA = 'Not Provided';
+
+interface DutyRow {
+  name: string;
+  capable: boolean;
+  reqFlow: number;
+  reqHead: number;
+  actFlow: number;
+  actHead: number;
+  flowMargin?: number;
+  headMargin?: number;
+  result: string;
+  score: number;
+  rqo: number;
+  npshr: number | null;
+  npsha: number | null;
+  npshMargin: number | null;
+}
+
 interface ReportData {
   capable: boolean;
   score: number;
   badge: { label: string; colorClass: string };
+  dutyRows: DutyRow[];
+  bepFlow: number;
   requiredFlow?: number;
   requiredHead?: number;
   actualFlow?: number;
@@ -50,38 +73,63 @@ interface ReportData {
   motorSizeKw?: number;
   motorLoading?: number;
   energyIntensity?: number;
-  bepFlow?: number;
-  npsha?: number;
-  npshr?: number;
-  npshMargin?: number;
+  opFlowMin?: number;
+  opFlowMax?: number;
+  rqoMin?: number;
+  rqoMax?: number;
+  porLow?: number;
+  porHigh?: number;
+  rangeStatus?: string;
+  hasNpsh?: boolean;
+  npshrMin?: number;
+  npshrMax?: number;
+  npshaMin?: number;
+  npshaMax?: number;
+  npshMarginMin?: number;
+  npshStatus?: string;
+  breakdown?: { item: string; pts: number; comment: string }[];
+  costPerML?: number;
+  estimatedCurrentAtDuty?: number;
 }
 
-const num = (v: number | undefined, digits = 1): string =>
-  v === undefined || !isFinite(v) ? '—' : v.toFixed(digits);
+const num = (v: number | undefined | null, digits = 1): string =>
+  v === undefined || v === null || !isFinite(v) ? '—' : v.toFixed(digits);
 
 const signed = (v: number | undefined, digits = 1): string =>
   v === undefined || !isFinite(v) ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(digits)}`;
 
-/** Tolerant interpolation of NPSH-required at a flow (handles npsh/head/value keys). */
-function npshrAtFlow(npshRequired: any[] | undefined, flow: number, r: number): number | null {
+const strOr = (v: unknown): string => {
+  if (v === undefined || v === null || v === '') return NA;
+  if (Array.isArray(v)) return v.length ? v.join(', ') : NA;
+  return String(v);
+};
+
+/** Linear interpolation of y at x over sorted {flow,head} points (clamped). */
+function interpAt(points: { flow: number; head: number }[] | undefined, x: number): number | null {
+  if (!points || points.length === 0) return null;
+  const pts = [...points].filter((p) => isFinite(p.flow) && isFinite(p.head)).sort((a, b) => a.flow - b.flow);
+  if (pts.length === 0) return null;
+  if (x <= pts[0].flow) return pts[0].head;
+  if (x >= pts[pts.length - 1].flow) return pts[pts.length - 1].head;
+  for (let i = 0; i < pts.length - 1; i++) {
+    if (pts[i].flow <= x && pts[i + 1].flow >= x) {
+      const t = (x - pts[i].flow) / (pts[i + 1].flow - pts[i].flow);
+      return pts[i].head + t * (pts[i + 1].head - pts[i].head);
+    }
+  }
+  return pts[pts.length - 1].head;
+}
+
+/** NPSH-required at a flow (pump units), tolerant of key names, scaled by speed. */
+function npshrAtFlow(npshRequired: any[] | undefined, flowPumpUnits: number, r: number): number | null {
   if (!npshRequired || npshRequired.length === 0) return null;
   const pts = npshRequired
     .map((p) => ({
       flow: Number(p.flow) * r,
-      npsh: Number(p.npsh ?? p.head ?? p.value ?? p.npshr)
+      head: Number(p.npsh ?? p.head ?? p.value ?? p.npshr)
     }))
-    .filter((p) => isFinite(p.flow) && isFinite(p.npsh))
-    .sort((a, b) => a.flow - b.flow);
-  if (pts.length === 0) return null;
-  if (flow <= pts[0].flow) return pts[0].npsh;
-  if (flow >= pts[pts.length - 1].flow) return pts[pts.length - 1].npsh;
-  for (let i = 0; i < pts.length - 1; i++) {
-    if (pts[i].flow <= flow && pts[i + 1].flow >= flow) {
-      const t = (flow - pts[i].flow) / (pts[i + 1].flow - pts[i].flow);
-      return pts[i].npsh + t * (pts[i + 1].npsh - pts[i].npsh);
-    }
-  }
-  return pts[pts.length - 1].npsh;
+    .filter((p) => isFinite(p.flow) && isFinite(p.head));
+  return interpAt(pts, flowPumpUnits);
 }
 
 export function PumpReport({
@@ -112,8 +160,12 @@ export function PumpReport({
     preparedBy: 'Quality Pumps - Pump Selection Tool',
     date: today
   });
+  const [electricityPrice, setElectricityPrice] = useState('0.35');
 
-  const report = useMemo<ReportData>(() => {
+  const dutyStr = (flow?: number, head?: number) =>
+    flow === undefined || !isFinite(flow) ? '—' : `${num(flow, 1)} ${flowUnit} @ ${num(head, 1)} ${headUnit}`;
+
+  const r = useMemo<ReportData>(() => {
     const validDuties = dischargeSystemCurveData.filter(
       (d) => (d.operatingFlow || 0) > 0 && (d.operatingHead || 0) > 0
     );
@@ -130,11 +182,51 @@ export function PumpReport({
     const rep = representativeDuty(result.dutyMetrics, dischargeCurveMode);
     const badge = getSuitabilityBadge(result.finalScore, result.isHidden);
 
+    // BEP at current speed (display units)
+    const bep = calculateBep(pump);
+    const bepFlow = convertFlow(bep.bepFlow * speedRatio, pump.flowUnit, flowUnit);
+
+    const suctionPts = npshChartProps.suctionCurvePoints?.[0];
+
+    // Per-duty rows (Section 2) — keep order aligned with validDuties
+    const dutyRows = result.dutyMetrics.map((m: DutyMetric, i) => {
+      const duty = validDuties[i];
+      const reqFlow = duty?.operatingFlow ?? 0;
+      const reqHead = duty?.operatingHead ?? 0;
+      const actFlow = convertFlow(m.operatingPoint.flow, pump.flowUnit, flowUnit);
+      const actHead = convertHead(m.operatingPoint.head, pump.headUnit, headUnit);
+      const flowMargin = reqFlow > 0 ? ((actFlow - reqFlow) / reqFlow) * 100 : undefined;
+      const headMargin = reqHead > 0 ? ((actHead - reqHead) / reqHead) * 100 : undefined;
+      const b = getSuitabilityBadge(m.score, m.isHidden);
+      // NPSH at this duty
+      const npshr = npshrAtFlow(pump.npshRequired, m.operatingPoint.flow, speedRatio);
+      const npshaDisp = interpAt(suctionPts, actFlow);
+      const npsha = npshaDisp !== null ? convertHead(npshaDisp, headUnit, 'm') : null;
+      const npshMargin = npsha !== null && npshr !== null ? npsha - npshr : null;
+      return {
+        name: duty?.name || `Discharge System ${i + 1}`,
+        capable: !m.isHidden,
+        reqFlow,
+        reqHead,
+        actFlow,
+        actHead,
+        flowMargin,
+        headMargin,
+        result: b.label,
+        score: m.score,
+        rqo: m.rqo,
+        npshr,
+        npsha,
+        npshMargin
+      };
+    });
+
+    const passedRows = dutyRows.filter((d) => d.capable);
+
     if (!rep || result.isHidden) {
-      return { capable: false, score: result.finalScore, badge };
+      return { capable: false, score: result.finalScore, badge, dutyRows, bepFlow };
     }
 
-    // Required duty = matching system curve
     const dutyCurve =
       validDuties.find((d) => (d.name || 'Unnamed Duty') === rep.dutyName) ?? validDuties[0];
     const requiredFlow = dutyCurve?.operatingFlow ?? 0;
@@ -146,36 +238,47 @@ export function PumpReport({
     const flowMargin = requiredFlow > 0 ? ((actualFlow - requiredFlow) / requiredFlow) * 100 : undefined;
     const headMargin = requiredHead > 0 ? ((actualHead - requiredHead) / requiredHead) * 100 : undefined;
 
-    // Hydraulic power = ρ·g·Q·H / 1000  (Q in m³/s, H in m)
     const qM3s = convertFlow(actualFlow, flowUnit, 'L/sec') / 1000;
     const hM = convertHead(actualHead, headUnit, 'm');
     const hydraulicKW = (SCORING_CONFIG.RHO * SCORING_CONFIG.G * qM3s * hM) / 1000;
 
     const absorbedKW = rep.pAbs;
     const motorSizeKw = pump.kw;
-    const motorLoading =
-      motorSizeKw && motorSizeKw > 0 ? absorbedKW / motorSizeKw : undefined;
+    const motorLoading = motorSizeKw && motorSizeKw > 0 ? absorbedKW / motorSizeKw : undefined;
+    const energyIntensity = energyIntensityKWhPerML(absorbedKW, actualFlow, flowUnit);
 
-    const bep = calculateBep(pump);
-    const bepFlow = convertFlow(bep.bepFlow * speedRatio, pump.flowUnit, flowUnit);
+    // Operating range (Section 3)
+    const opFlows = passedRows.map((d) => d.actFlow).filter((f) => isFinite(f));
+    const rqos = passedRows.map((d) => d.rqo * 100).filter((f) => isFinite(f));
+    const porLow = bepFlow * SCORING_CONFIG.POR_LOW;
+    const porHigh = bepFlow * SCORING_CONFIG.POR_HIGH;
+    const anyOutsideAor = passedRows.some((d) => d.rqo < SCORING_CONFIG.AOR_LOW || d.rqo > SCORING_CONFIG.AOR_HIGH);
 
-    // NPSH margin (first suction system, if any)
-    let npshMargin: number | undefined;
-    let npsha: number | undefined;
-    let npshr: number | undefined;
-    if (suctionCurveData.length > 0) {
-      npsha = suctionCurveData[0].operatingNpsha;
-      const r = npshrAtFlow(pump.npshRequired, rep.operatingPoint.flow, speedRatio);
-      if (r !== null && isFinite(npsha)) {
-        npshr = r;
-        npshMargin = npsha - r;
-      }
-    }
+    // NPSH summary (Section 4)
+    const npshrs = passedRows.map((d) => d.npshr).filter((v): v is number => v !== null);
+    const npshas = passedRows.map((d) => d.npsha).filter((v): v is number => v !== null);
+    const npshMargins = passedRows.map((d) => d.npshMargin).filter((v): v is number => v !== null);
+    const hasNpsh = suctionCurveData.length > 0 && npshrs.length > 0 && npshas.length > 0;
+
+    // Score breakdown (Section 5) — penalty contributions in points (sum = score)
+    const C = SCORING_CONFIG;
+    const breakdown = [
+      { item: 'Head Margin', pts: C.W_H * rep.ph * 100, comment: 'Head at duty vs preferred head band.' },
+      { item: 'Preferred Operating Range', pts: C.W_R * rep.pr * 100, comment: 'Operating flow vs BEP preferred range (70–120%).' },
+      { item: 'Allowable Operating Range', pts: C.W_A * rep.pa * 100, comment: 'Excursion beyond allowable range (50–140%).' },
+      { item: 'Energy', pts: C.W_E * rep.pe * 100, comment: 'Absorbed power vs the most efficient capable option.' },
+      { item: 'Speed (VFD)', pts: C.W_V * rep.pv * 100, comment: 'Deviation from rated speed.' },
+      { item: 'Data Confidence', pts: C.W_C * rep.pc * 100, comment: rep.pc > 0 ? 'Efficiency is estimated (no curve/power data).' : 'Efficiency derived from supplied data.' }
+    ];
+
+    const price = parseFloat(electricityPrice);
+    const costPerML = isFinite(price) && price > 0 ? energyIntensity * price : undefined;
 
     return {
       capable: true,
       score: result.finalScore,
       badge,
+      dutyRows,
       requiredFlow,
       requiredHead,
       actualFlow,
@@ -188,11 +291,27 @@ export function PumpReport({
       absorbedKW,
       motorSizeKw,
       motorLoading,
-      energyIntensity: energyIntensityKWhPerML(absorbedKW, actualFlow, flowUnit),
+      energyIntensity,
       bepFlow,
-      npsha,
-      npshr,
-      npshMargin
+      // ranges
+      opFlowMin: opFlows.length ? Math.min(...opFlows) : undefined,
+      opFlowMax: opFlows.length ? Math.max(...opFlows) : undefined,
+      rqoMin: rqos.length ? Math.min(...rqos) : undefined,
+      rqoMax: rqos.length ? Math.max(...rqos) : undefined,
+      porLow,
+      porHigh,
+      rangeStatus: anyOutsideAor ? 'FAIL' : 'PASS',
+      // npsh
+      hasNpsh,
+      npshrMin: npshrs.length ? Math.min(...npshrs) : undefined,
+      npshrMax: npshrs.length ? Math.max(...npshrs) : undefined,
+      npshaMin: npshas.length ? Math.min(...npshas) : undefined,
+      npshaMax: npshas.length ? Math.max(...npshas) : undefined,
+      npshMarginMin: npshMargins.length ? Math.min(...npshMargins) : undefined,
+      npshStatus: npshMargins.length ? (Math.min(...npshMargins) >= 0.5 ? 'PASS' : 'FAIL') : 'N/A',
+      breakdown,
+      costPerML,
+      estimatedCurrentAtDuty: pump.amps
     };
   }, [
     pump,
@@ -203,83 +322,54 @@ export function PumpReport({
     headUnit,
     dischargeCurveMode,
     numberOfDutyPumps,
-    pAbsBestPerDuty
+    pAbsBestPerDuty,
+    npshChartProps,
+    electricityPrice
   ]);
 
+  const worstDuty = useMemo(() => {
+    const passed = r.dutyRows.filter((d) => d.capable);
+    if (passed.length === 0) return null;
+    return passed.reduce((w, d) => (d.score > w.score ? d : w), passed[0]);
+  }, [r]);
+
   const comment = useMemo(() => {
-    if (!report.capable) {
+    if (!r.capable) {
       return 'The pump cannot meet the required duty — its head at the duty flow is below the system requirement. Select a larger pump or reduce the duty.';
     }
     const parts: string[] = [];
-    parts.push(
-      `The pump achieves the required duty and is rated "${report.badge.label}" (score ${num(report.score, 1)}).`
-    );
-    if (report.bepPositionPct !== undefined) {
-      const near = report.bepPositionPct >= 70 && report.bepPositionPct <= 120;
+    parts.push(`The pump achieves the required duty and is rated "${r.badge.label}" (score ${num(r.score, 1)}).`);
+    if (r.bepPositionPct !== undefined) {
+      const near = r.bepPositionPct >= 70 && r.bepPositionPct <= 120;
       parts.push(
         near
-          ? `It operates close to BEP (${num(report.bepPositionPct, 0)}% of BEP flow).`
-          : `It operates at ${num(report.bepPositionPct, 0)}% of BEP flow — outside the preferred operating range.`
+          ? `It operates close to BEP (${num(r.bepPositionPct, 0)}% of BEP flow).`
+          : `It operates at ${num(r.bepPositionPct, 0)}% of BEP flow — outside the preferred operating range.`
       );
     }
-    if (report.motorLoading !== undefined) {
+    if (r.motorLoading !== undefined) {
       parts.push(
-        report.motorLoading > 1
-          ? `Warning: absorbed power exceeds the rated motor size (loading ${num(report.motorLoading * 100, 0)}%).`
-          : `Motor loading is ${num(report.motorLoading * 100, 0)}% of the rated motor size.`
+        r.motorLoading > 1
+          ? `Warning: absorbed power exceeds the rated motor size (loading ${num(r.motorLoading * 100, 0)}%).`
+          : `Motor loading is ${num(r.motorLoading * 100, 0)}% of the rated motor size.`
       );
     }
     parts.push(
       'Final selection should still be checked against the manufacturer curve, curve tolerance, liquid conditions, controls, electrical protection, and installation details.'
     );
     return parts.join(' ');
-  }, [report]);
+  }, [r]);
 
-  const dutyStr = (flow?: number, head?: number) =>
-    flow === undefined ? '—' : `${num(flow, 1)} ${flowUnit} @ ${num(head, 1)} ${headUnit}`;
-
-  const tiles: { label: string; value: string }[] = report.capable
-    ? [
-        { label: 'Required duty', value: dutyStr(report.requiredFlow, report.requiredHead) },
-        { label: 'Actual duty', value: dutyStr(report.actualFlow, report.actualHead) },
-        { label: 'Efficiency', value: `${num(report.efficiencyPct, 0)}%` },
-        { label: 'BEP position', value: `${num(report.bepPositionPct, 0)}%` },
-        { label: 'Absorbed power', value: `${num(report.absorbedKW, 2)} kW` },
-        { label: 'Motor loading', value: report.motorLoading !== undefined ? `${num(report.motorLoading * 100, 0)}%` : '—' },
-        { label: 'Energy intensity', value: `${num(report.energyIntensity, 1)} kWh/ML` },
-        { label: 'NPSH margin', value: report.npshMargin !== undefined ? `${num(report.npshMargin, 1)} m` : '—' }
-      ]
-    : [];
-
-  const rows: { item: string; result: string }[] = report.capable
-    ? [
-        { item: 'Pump model', result: pump.model || pump.name || '—' },
-        { item: 'Pump type', result: pump.type?.join(', ') || '—' },
-        { item: 'Required duty', result: dutyStr(report.requiredFlow, report.requiredHead) },
-        { item: 'Actual duty point', result: dutyStr(report.actualFlow, report.actualHead) },
-        { item: 'Flow margin', result: `${signed(report.flowMargin, 1)}%` },
-        { item: 'Head margin', result: `${signed(report.headMargin, 1)}%` },
-        { item: 'Hydraulic power', result: `${num(report.hydraulicKW, 2)} kW` },
-        { item: 'Absorbed power at duty', result: `${num(report.absorbedKW, 2)} kW` },
-        { item: 'Motor size', result: report.motorSizeKw ? `${num(report.motorSizeKw, 1)} kW` : '—' },
-        { item: 'Motor loading', result: report.motorLoading !== undefined ? num(report.motorLoading, 2) : '—' },
-        { item: 'Efficiency', result: `${num(report.efficiencyPct, 0)}%` },
-        { item: 'Energy intensity', result: `${num(report.energyIntensity, 1)} kWh/ML` },
-        { item: 'BEP flow', result: `${num(report.bepFlow, 1)} ${flowUnit}` },
-        { item: 'Operating point vs BEP', result: `${num(report.bepPositionPct, 0)}%` },
-        { item: 'Score', result: num(report.score, 1) },
-        { item: 'Suitability', result: report.badge.label },
-        ...(report.npsha !== undefined
-          ? [{ item: 'NPSH available', result: `${num(report.npsha, 1)} m` }]
-          : []),
-        ...(report.npshr !== undefined
-          ? [{ item: 'NPSH required (at duty)', result: `${num(report.npshr, 1)} m` }]
-          : []),
-        ...(report.npshMargin !== undefined
-          ? [{ item: 'NPSH margin', result: `${num(report.npshMargin, 1)} m` }]
-          : [])
-      ]
-    : [];
+  // Warnings (Section 10)
+  const warnings = useMemo(() => {
+    const w: { type: string; note: string }[] = [];
+    if (!r.capable) w.push({ type: 'Capability', note: 'Pump cannot meet the required duty.' });
+    if (r.rangeStatus === 'FAIL') w.push({ type: 'Operating range', note: 'One or more duties fall outside the allowable operating range.' });
+    if (r.motorLoading !== undefined && r.motorLoading > 1) w.push({ type: 'Motor', note: 'Absorbed power exceeds rated motor size.' });
+    if (r.hasNpsh && r.npshStatus === 'FAIL') w.push({ type: 'NPSH', note: 'NPSH margin is below 0.5 m at one or more duties.' });
+    if (!r.hasNpsh) w.push({ type: 'NPSH', note: 'No suction system entered — NPSH not assessed.' });
+    return w;
+  }, [r]);
 
   const metaFields: { key: keyof typeof meta; label: string }[] = [
     { key: 'project', label: 'Project' },
@@ -290,15 +380,63 @@ export function PumpReport({
     { key: 'date', label: 'Report Date' }
   ];
 
-  return (
-    <div className='bg-background/95 fixed inset-0 z-50 overflow-y-auto'>
-      {/* Print rules: only the report container prints */}
+  // KPI tiles (Section 1)
+  const tiles = r.capable
+    ? [
+        { label: 'Required duty', value: dutyStr(r.requiredFlow, r.requiredHead) },
+        { label: 'Actual duty', value: dutyStr(r.actualFlow, r.actualHead) },
+        { label: 'Efficiency', value: `${num(r.efficiencyPct, 0)}%` },
+        { label: 'BEP position', value: `${num(r.bepPositionPct, 0)}%` },
+        { label: 'Absorbed power', value: `${num(r.absorbedKW, 2)} kW` },
+        { label: 'Motor loading', value: r.motorLoading !== undefined ? `${num(r.motorLoading * 100, 0)}%` : '—' },
+        { label: 'Energy intensity', value: `${num(r.energyIntensity, 1)} kWh/ML` },
+        {
+          label: 'NPSH margin',
+          value: r.hasNpsh && r.npshMarginMin !== undefined ? `${num(r.npshMarginMin, 1)} m` : '—'
+        }
+      ]
+    : [];
+
+  const Th = ({ children }: { children: React.ReactNode }) => (
+    <th className='border border-gray-300 bg-sky-700 p-2 text-left text-white'>{children}</th>
+  );
+  const Row = ({ label, value, i }: { label: string; value: string; i: number }) => (
+    <tr className={i % 2 ? 'bg-sky-50' : ''}>
+      <td className='border border-gray-300 p-2 font-medium'>{label}</td>
+      <td className='border border-gray-300 p-2'>{value}</td>
+    </tr>
+  );
+
+  // VSD compatibility from traits
+  const vsdCompatible = pump.otherTraits?.some((t) => /vfd|vsd/i.test(t)) ? 'Yes' : NA;
+
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className='pump-report-portal bg-background/95 fixed inset-0 z-50 overflow-y-auto'>
       <style>{`
         @media print {
-          body * { visibility: hidden !important; }
-          #pump-report-printable, #pump-report-printable * { visibility: visible !important; }
-          #pump-report-printable { position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
+          /* Hide the whole app; show only this report portal */
+          body > *:not(.pump-report-portal) { display: none !important; }
+          .pump-report-portal {
+            position: static !important;
+            overflow: visible !important;
+            background: #fff !important;
+            display: block !important;
+          }
           .pump-report-no-print { display: none !important; }
+          #pump-report-printable {
+            position: static !important;
+            overflow: visible !important;
+            max-width: none !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          /* Hide interactive buttons (e.g. chart "Download") inside the report */
+          #pump-report-printable button { display: none !important; }
+          .report-section { break-inside: avoid; }
+          .report-page-break { break-before: page; }
           @page { size: A4; margin: 12mm; }
         }
       `}</style>
@@ -306,7 +444,15 @@ export function PumpReport({
       {/* Toolbar (not printed) */}
       <div className='pump-report-no-print bg-background sticky top-0 z-10 flex items-center justify-between border-b p-3'>
         <span className='font-semibold'>Pump Selection Detailed Report</span>
-        <div className='flex gap-2'>
+        <div className='flex items-center gap-3'>
+          <label className='text-muted-foreground flex items-center gap-1 text-sm'>
+            Electricity $/kWh
+            <Input
+              value={electricityPrice}
+              onChange={(e) => setElectricityPrice(e.target.value)}
+              className='h-8 w-20'
+            />
+          </label>
           <Button onClick={() => window.print()} className='cursor-pointer'>
             <Printer className='mr-2 h-4 w-4' />
             Print / Save as PDF
@@ -320,16 +466,16 @@ export function PumpReport({
 
       <div
         id='pump-report-printable'
-        className='mx-auto max-w-4xl space-y-6 bg-white p-6 text-black'
+        className='mx-auto max-w-4xl space-y-8 bg-white p-6 text-black'
       >
         {/* Branding header */}
-        <div className='flex items-center gap-4 border-b pb-4'>
+        <div className='report-section flex items-center gap-4 border-b pb-4'>
           <Image src='/logo.png' alt='Quality Pumps' width={140} height={48} className='h-12 w-auto' />
           <h1 className='text-2xl font-bold'>Pump Selection Detailed Report</h1>
         </div>
 
-        {/* Editable metadata */}
-        <div className='grid grid-cols-2 gap-3 md:grid-cols-3'>
+        {/* Metadata */}
+        <div className='report-section grid grid-cols-2 gap-3 md:grid-cols-3'>
           {metaFields.map((f) => (
             <div key={f.key} className='space-y-1'>
               <label className='text-xs font-semibold text-gray-600'>{f.label}</label>
@@ -343,8 +489,8 @@ export function PumpReport({
         </div>
 
         {/* KPI tiles */}
-        {report.capable && (
-          <div className='grid grid-cols-2 gap-3 md:grid-cols-4'>
+        {r.capable && (
+          <div className='report-section grid grid-cols-2 gap-3 md:grid-cols-4'>
             {tiles.map((t) => (
               <div key={t.label} className='rounded-lg border bg-gray-50 p-3'>
                 <p className='text-xs text-gray-500'>{t.label}</p>
@@ -354,22 +500,36 @@ export function PumpReport({
           </div>
         )}
 
-        {/* Selection Summary table */}
-        <div>
+        {/* 1. Selection Summary */}
+        <section className='report-section'>
           <h2 className='mb-2 text-lg font-bold'>1. Selection Summary</h2>
           <table className='w-full border-collapse text-sm'>
             <thead>
-              <tr className='bg-sky-700 text-left text-white'>
-                <th className='border p-2'>Item</th>
-                <th className='border p-2'>Result</th>
+              <tr>
+                <Th>Item</Th>
+                <Th>Result</Th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
-                <tr key={r.item} className={i % 2 ? 'bg-sky-50' : ''}>
-                  <td className='border p-2 font-medium'>{r.item}</td>
-                  <td className='border p-2'>{r.result}</td>
-                </tr>
+              {[
+                { l: 'Pump model', v: strOr(pump.model || pump.name) },
+                { l: 'Pump type', v: strOr(pump.type) },
+                { l: 'Required duty', v: dutyStr(r.requiredFlow, r.requiredHead) },
+                { l: 'Actual duty point', v: dutyStr(r.actualFlow, r.actualHead) },
+                { l: 'Flow margin', v: `${signed(r.flowMargin)}%` },
+                { l: 'Head margin', v: `${signed(r.headMargin)}%` },
+                { l: 'Hydraulic power', v: `${num(r.hydraulicKW, 2)} kW` },
+                { l: 'Absorbed power at duty', v: `${num(r.absorbedKW, 2)} kW` },
+                { l: 'Motor size', v: r.motorSizeKw ? `${num(r.motorSizeKw, 1)} kW` : NA },
+                { l: 'Motor loading', v: r.motorLoading !== undefined ? num(r.motorLoading, 2) : '—' },
+                { l: 'Efficiency', v: `${num(r.efficiencyPct, 0)}%` },
+                { l: 'Energy intensity', v: `${num(r.energyIntensity, 1)} kWh/ML` },
+                { l: 'BEP flow', v: `${num(r.bepFlow, 1)} ${flowUnit}` },
+                { l: 'Operating point vs BEP', v: `${num(r.bepPositionPct, 0)}%` },
+                { l: 'Score', v: num(r.score, 1) },
+                { l: 'Suitability', v: r.badge.label }
+              ].map((row, i) => (
+                <Row key={row.l} label={row.l} value={row.v} i={i} />
               ))}
             </tbody>
           </table>
@@ -377,20 +537,329 @@ export function PumpReport({
             <span className='font-semibold'>Selection comment: </span>
             {comment}
           </div>
-        </div>
+        </section>
 
-        {/* Pressure vs Flow */}
-        <div>
-          <h2 className='mb-2 text-lg font-bold'>2. Pressure vs Flow</h2>
+        {/* 2. Pump Performance Curve vs System Curves */}
+        <section className='report-section report-page-break'>
+          <h2 className='mb-2 text-lg font-bold'>2. Pump Performance Curve vs System Curves</h2>
           <DischargeCurveChart {...dischargeChartProps} />
-        </div>
+          <table className='mt-3 w-full border-collapse text-sm'>
+            <thead>
+              <tr>
+                <Th>System</Th>
+                <Th>Required Duty</Th>
+                <Th>Actual Operating Point</Th>
+                <Th>Flow Margin</Th>
+                <Th>Head Margin</Th>
+                <Th>Result</Th>
+                <Th>Score</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {r.dutyRows.map((d, i) => (
+                <tr key={d.name} className={i % 2 ? 'bg-sky-50' : ''}>
+                  <td className='border border-gray-300 p-2'>{d.name}</td>
+                  <td className='border border-gray-300 p-2'>{dutyStr(d.reqFlow, d.reqHead)}</td>
+                  <td className='border border-gray-300 p-2'>
+                    {d.capable ? dutyStr(d.actFlow, d.actHead) : 'Not capable'}
+                  </td>
+                  <td className='border border-gray-300 p-2'>{d.capable ? `${signed(d.flowMargin)}%` : '—'}</td>
+                  <td className='border border-gray-300 p-2'>{d.capable ? `${signed(d.headMargin)}%` : '—'}</td>
+                  <td className='border border-gray-300 p-2'>{d.result}</td>
+                  <td className='border border-gray-300 p-2'>{num(d.score, 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {worstDuty && (
+            <p className='mt-2 text-sm'>
+              <span className='font-semibold'>Worst Duty:</span> {worstDuty.name}. Limiting factor:{' '}
+              {worstDuty.headMargin !== undefined && worstDuty.headMargin < 5
+                ? 'highest required head.'
+                : 'tightest operating margin.'}
+            </p>
+          )}
+        </section>
 
-        {/* NPSH */}
-        <div>
-          <h2 className='mb-2 text-lg font-bold'>3. NPSH and Suction Curves</h2>
+        {/* 3. BEP and Operating Range Check */}
+        {r.capable && (
+        <section className='report-section'>
+          <h2 className='mb-2 text-lg font-bold'>3. BEP and Operating Range Check</h2>
+          <table className='w-full border-collapse text-sm'>
+            <thead>
+              <tr>
+                <Th>Item</Th>
+                <Th>Value</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { l: 'BEP flow', v: `${num(r.bepFlow, 1)} ${flowUnit}` },
+                {
+                  l: 'Actual operating flow',
+                  v:
+                    r.opFlowMin !== undefined
+                      ? `${num(r.opFlowMin, 1)} to ${num(r.opFlowMax, 1)} ${flowUnit}`
+                      : '—'
+                },
+                {
+                  l: 'Operating point vs BEP',
+                  v: r.rqoMin !== undefined ? `${num(r.rqoMin, 1)}% to ${num(r.rqoMax, 1)}%` : '—'
+                },
+                {
+                  l: 'Preferred operating range',
+                  v: `${num(r.porLow, 1)} to ${num(r.porHigh, 1)} ${flowUnit}`
+                },
+                { l: 'Preferred flow range', v: '70–120% of BEP' },
+                { l: 'Operating range status', v: r.rangeStatus ?? '—' }
+              ].map((row, i) => (
+                <Row key={row.l} label={row.l} value={row.v} i={i} />
+              ))}
+            </tbody>
+          </table>
+        </section>
+        )}
+
+        {/* 4. NPSH Curve and Suction Check */}
+        <section className='report-section report-page-break'>
+          <h2 className='mb-2 text-lg font-bold'>4. NPSH Curve and Suction Check</h2>
           <NpshCurveChart {...npshChartProps} />
-        </div>
+          <table className='mt-3 w-full border-collapse text-sm'>
+            <thead>
+              <tr>
+                <Th>Item</Th>
+                <Th>Value</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {r.hasNpsh
+                ? [
+                    { l: 'NPSHr at duty', v: `${num(r.npshrMin, 1)} to ${num(r.npshrMax, 1)} m` },
+                    { l: 'NPSHa at duty', v: `${num(r.npshaMin, 1)} to ${num(r.npshaMax, 1)} m` },
+                    {
+                      l: 'NPSH margin',
+                      v: r.npshMarginMin !== undefined ? `${num(r.npshMarginMin, 1)} m (min)` : '—'
+                    },
+                    { l: 'NPSH status', v: r.npshStatus ?? 'N/A' }
+                  ].map((row, i) => <Row key={row.l} label={row.l} value={row.v} i={i} />)
+                : [
+                    { l: 'NPSHr at duty', v: NA },
+                    { l: 'NPSHa at duty', v: 'No suction system entered' },
+                    { l: 'NPSH margin', v: '—' },
+                    { l: 'NPSH status', v: 'N/A' }
+                  ].map((row, i) => <Row key={row.l} label={row.l} value={row.v} i={i} />)}
+            </tbody>
+          </table>
+        </section>
+
+        {/* 5. Score Breakdown */}
+        {r.capable && r.breakdown && (
+          <section className='report-section report-page-break'>
+            <h2 className='mb-2 text-lg font-bold'>5. Score Breakdown</h2>
+            <div className='space-y-2'>
+              {r.breakdown.map((b) => {
+                const pct = Math.max(0, Math.min(100, 100 - b.pts));
+                return (
+                  <div key={b.item} className='flex items-center gap-2 text-sm'>
+                    <span className='w-48 shrink-0 text-right'>{b.item}</span>
+                    <div className='h-4 flex-1 rounded bg-gray-100'>
+                      <div className='h-4 rounded bg-sky-500' style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className='w-12 text-right'>{num(pct, 0)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+            <table className='mt-3 w-full border-collapse text-sm'>
+              <thead>
+                <tr>
+                  <Th>Item</Th>
+                  <Th>Penalty (pts)</Th>
+                  <Th>Comment</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {r.breakdown.map((b, i) => (
+                  <tr key={b.item} className={i % 2 ? 'bg-sky-50' : ''}>
+                    <td className='border border-gray-300 p-2 font-medium'>{b.item}</td>
+                    <td className='border border-gray-300 p-2'>{num(b.pts, 2)}</td>
+                    <td className='border border-gray-300 p-2'>{b.comment}</td>
+                  </tr>
+                ))}
+                <tr className='bg-green-100 font-bold'>
+                  <td className='border border-gray-300 p-2'>Total</td>
+                  <td className='border border-gray-300 p-2'>{num(r.score, 2)}</td>
+                  <td className='border border-gray-300 p-2'>{r.badge.label}</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {/* 6. Power, Efficiency, and Energy Use */}
+        <section className='report-section report-page-break'>
+          <h2 className='mb-2 text-lg font-bold'>6. Power, Efficiency, and Energy Use</h2>
+          <table className='w-full border-collapse text-sm'>
+            <thead>
+              <tr>
+                <Th>Item</Th>
+                <Th>Value</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { l: 'Hydraulic power', v: `${num(r.hydraulicKW, 2)} kW` },
+                { l: 'Pump absorbed power', v: `${num(r.absorbedKW, 2)} kW` },
+                { l: 'Motor rated power', v: r.motorSizeKw ? `${num(r.motorSizeKw, 1)} kW` : NA },
+                { l: 'Motor loading', v: r.motorLoading !== undefined ? `${num(r.motorLoading * 100, 1)}%` : '—' },
+                { l: 'Pump efficiency*', v: `${num(r.efficiencyPct, 0)}%` },
+                { l: 'Energy intensity**', v: `${num(r.energyIntensity, 1)} kWh/ML` },
+                { l: 'Electricity price assumption', v: `$${electricityPrice}/kWh` },
+                { l: 'Estimated cost per ML', v: r.costPerML !== undefined ? `$${num(r.costPerML, 2)}` : '—' },
+                { l: 'Assumed runtime', v: NA },
+                { l: 'Estimated annual energy use', v: 'N/A' },
+                { l: 'Estimated annual energy cost', v: 'N/A' }
+              ].map((row, i) => (
+                <Row key={row.l} label={row.l} value={row.v} i={i} />
+              ))}
+            </tbody>
+          </table>
+          <p className='mt-1 text-xs text-gray-500'>*Efficiency may be estimated where curve data is missing.</p>
+          <p className='text-xs text-gray-500'>**Motor efficiency is not included; confirm with the manufacturer.</p>
+        </section>
+
+        {/* 7. Electrical Data */}
+        <section className='report-section'>
+          <h2 className='mb-2 text-lg font-bold'>7. Electrical Data</h2>
+          <table className='w-full border-collapse text-sm'>
+            <tbody>
+              {[
+                ['Voltage', pump.voltage ? `${pump.voltage} V` : NA, 'Phase', strOr(pump.phases)],
+                ['Frequency', pump.hz ? `${pump.hz} Hz` : NA, 'Motor size', pump.kw ? `${pump.kw} kW` : NA],
+                ['Full-load current', pump.amps ? `${pump.amps} A` : NA, 'Estimated current at duty', r.estimatedCurrentAtDuty ? `${num(r.estimatedCurrentAtDuty, 0)} A` : NA],
+                ['Starting method', NA, 'VSD compatible', vsdCompatible],
+                ['Max starts/hr', NA, 'Duty rating', NA],
+                ['IP rating', NA, 'Insulation', NA]
+              ].map((row, i) => (
+                <tr key={row[0]} className={i % 2 ? 'bg-sky-50' : ''}>
+                  <td className='border border-gray-300 p-2 font-medium'>{row[0]}</td>
+                  <td className='border border-gray-300 p-2'>{row[1]}</td>
+                  <td className='border border-gray-300 p-2 font-medium'>{row[2]}</td>
+                  <td className='border border-gray-300 p-2'>{row[3]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+
+        {/* 8. Pump Construction Data */}
+        <section className='report-section'>
+          <h2 className='mb-2 text-lg font-bold'>8. Pump Construction Data</h2>
+          <table className='w-full border-collapse text-sm'>
+            <tbody>
+              {[
+                ['Pump type', strOr(pump.type)],
+                ['Impeller type', strOr(pump.impellerType)],
+                ['Configuration', strOr(pump.configuration)],
+                ['Solids passage', NA],
+                ['Inlet size', pump.inlet ? `${pump.inlet} mm` : NA],
+                ['Outlet size', pump.outlet ? `${pump.outlet} mm` : NA],
+                ['Materials', NA],
+                ['Mechanical seal', NA],
+                ['RPM', strOr(pump.rpm)],
+                ['Min / Max temp', pump.minTemp || pump.maxTemp ? `${strOr(pump.minTemp)} / ${strOr(pump.maxTemp)} °C` : NA],
+                ['Cable length', NA],
+                ['Pump weight', NA],
+                ['Installation type', NA]
+              ].map((row, i) => (
+                <Row key={row[0]} label={row[0]} value={row[1]} i={i} />
+              ))}
+            </tbody>
+          </table>
+        </section>
+
+        {/* 9. System Curve Inputs */}
+        <section className='report-section report-page-break'>
+          <h2 className='mb-2 text-lg font-bold'>9. System Curve Inputs</h2>
+          <table className='w-full border-collapse text-sm'>
+            <thead>
+              <tr>
+                <Th>Item</Th>
+                {dischargeSystemCurveData.map((s, i) => (
+                  <Th key={s.id}>{s.name || `Discharge System ${i + 1}`}</Th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { l: 'Static head', get: (s: SystemCurveData) => `${num(s.staticHead, 1)} ${headUnit}` },
+                { l: 'Pipe material', get: (s: SystemCurveData) => strOr(s.components?.[0]?.material) },
+                { l: 'Pipe size', get: (s: SystemCurveData) => strOr(s.components?.[0]?.nominalSize) },
+                { l: 'Pipe internal diameter', get: (s: SystemCurveData) => (s.components?.[0]?.diameter ? `${s.components[0].diameter} mm` : NA) },
+                { l: 'Rising main length', get: (s: SystemCurveData) => (s.components?.[0]?.length ? `${s.components[0].length} m` : NA) },
+                { l: 'Friction method', get: (s: SystemCurveData) => (s.components?.[0]?.cValue ? 'Hazen-Williams' : NA) },
+                { l: 'Hazen-Williams C value', get: (s: SystemCurveData) => strOr(s.components?.[0]?.cValue) },
+                { l: 'Required design flow', get: (s: SystemCurveData) => `${num(s.operatingFlow, 1)} ${flowUnit}` },
+                { l: 'Total dynamic head', get: (s: SystemCurveData) => `${num(s.operatingHead, 1)} ${headUnit}` },
+                { l: 'Fluid', get: () => 'Water' },
+                { l: 'Fluid density', get: () => '1000 kg/m³' }
+              ].map((row, i) => (
+                <tr key={row.l} className={i % 2 ? 'bg-sky-50' : ''}>
+                  <td className='border border-gray-300 p-2 font-medium'>{row.l}</td>
+                  {dischargeSystemCurveData.map((s) => (
+                    <td key={s.id} className='border border-gray-300 p-2'>
+                      {row.get(s)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+
+        {/* 10. Warnings and Design Notes */}
+        <section className='report-section'>
+          <h2 className='mb-2 text-lg font-bold'>10. Warnings and Design Notes</h2>
+          <table className='w-full border-collapse text-sm'>
+            <thead>
+              <tr>
+                <Th>Type</Th>
+                <Th>Note</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {warnings.length === 0 ? (
+                <Row label='None' value='None' i={0} />
+              ) : (
+                warnings.map((w, i) => <Row key={w.type + i} label={w.type} value={w.note} i={i} />)
+              )}
+            </tbody>
+          </table>
+        </section>
+
+        {/* 11. Assumptions and Limitations */}
+        <section className='report-section'>
+          <h2 className='mb-2 text-lg font-bold'>11. Assumptions and Limitations</h2>
+          <ul className='list-disc space-y-1 pl-6 text-sm'>
+            <li>Actual operating point is calculated from the intersection of the pump curve and system curve.</li>
+            <li>Energy cost is estimated using the entered electricity rate; runtime is not assumed.</li>
+            <li>Friction losses use the selected friction method and entered pipe data.</li>
+            <li>Pump efficiency may be estimated where manufacturer data is unavailable; motor efficiency is not included.</li>
+            <li>Final selection should be checked against site conditions, power supply, liquid type, control method, installation arrangement, and relevant standards.</li>
+            <li>This report does not replace project-specific engineering certification where required.</li>
+          </ul>
+        </section>
+
+        {/* 12. Final Recommendation */}
+        <section className='report-section report-page-break'>
+          <h2 className='mb-2 text-lg font-bold'>12. Final Recommendation</h2>
+          <div className='rounded-md border border-green-200 bg-green-50 p-3 text-sm'>
+            <p className='font-semibold'>Recommended selection: {pump.model || pump.name}</p>
+            <p className='mt-1'>{comment}</p>
+          </div>
+        </section>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
