@@ -20,7 +20,7 @@ import type {
   SegmentedPumpCurve
 } from '@/types';
 import jsPDF from 'jspdf';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { FlowUnit, HeadUnit, convertFlow, convertHead } from '@/lib/units';
 import {
   Select,
@@ -130,6 +130,7 @@ function EnergySavingsDisplay({
 export function PumpCurveDashboard() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const pathname = usePathname();
   const [flowUnit, setFlowUnit] = useState<FlowUnit>('L/min');
   const [headUnit, setHeadUnit] = useState<HeadUnit>('m');
   const [originalFlowUnit, setOriginalFlowUnit] = useState<FlowUnit>('L/min');
@@ -1735,7 +1736,10 @@ export function PumpCurveDashboard() {
   };
 
   const editPumpFromSaved = (pump: SavedPump) => {
-    router.push(`/dashboard/pumps/edit/${pump.id}`);
+    // Pass the current tool path so the edit page can return here after saving
+    // instead of redirecting to the pump library.
+    const returnTo = encodeURIComponent(pathname);
+    router.push(`/dashboard/pumps/edit/${pump.id}?returnTo=${returnTo}`);
   };
 
   // Helper function to map Supabase pump to app pump

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -239,9 +239,13 @@ const EditPump: React.FC = () => {
 
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const isAdmin = user?.user_metadata?.role === 'admin';
   const pumpId = params.pumpId as string;
+  // When opened from a tool (e.g. the pump curve dashboard) this holds the path
+  // to return to after saving; otherwise we fall back to the pump library.
+  const returnTo = searchParams.get('returnTo') || '/dashboard/pumps';
 
   // Fetch existing pump data
   const fetchPump = async (): Promise<void> => {
@@ -696,7 +700,7 @@ const EditPump: React.FC = () => {
       if (error) throw error;
 
       toast.success('Pump updated successfully!');
-      router.push('/dashboard/pumps');
+      router.push(returnTo);
     } catch (err: unknown) {
       const errorMessage =
         err instanceof Error ? err.message : 'An error occurred';
