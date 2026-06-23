@@ -49,6 +49,15 @@ interface PerformancePoint {
   flow: number;
 }
 
+// Storage keys used to persist the tool's working state across navigation
+// (e.g. opening the pump edit page and returning via the back button).
+// Discharge / suction values reuse the existing localStorage handoff keys so
+// the mount-time restore logic below picks them up. UI preferences (mode, duty
+// count, visibility toggles) live in sessionStorage alongside activeSavedPumps.
+const DISCHARGE_CURVES_KEY = 'dischargeCurves';
+const SUCTION_CURVES_KEY = 'suctionCurves';
+const UI_PREFS_KEY = 'npshDashboardUiPrefs';
+
 
 interface EnergySavingsDisplayProps {
   baseRpm: number;
@@ -222,6 +231,9 @@ export function PumpCurveDashboard() {
   >([]);
 
   const chartRef = useRef<HTMLDivElement>(null);
+  // Becomes true once persisted state has been restored on mount, so the
+  // persist effects below don't overwrite saved data with initial defaults.
+  const hydratedRef = useRef(false);
   const { user } = useAuth();
   const isAdmin = user?.user_metadata?.role === 'admin';
 
@@ -546,6 +558,32 @@ export function PumpCurveDashboard() {
     });
   }, [activeSavedPumps]);
 
+  // Restore UI preferences (mode, duty count, visibility toggles) on mount.
+  // Declared before the curve-loading effect so the latter still wins for
+  // genuine cross-tool handoffs (URL params / friction calculator data).
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(UI_PREFS_KEY);
+      if (raw) {
+        const prefs = JSON.parse(raw);
+        if (prefs.dischargeCurveMode === 'and' || prefs.dischargeCurveMode === 'or') {
+          setDischargeCurveMode(prefs.dischargeCurveMode);
+        }
+        if (typeof prefs.numberOfDutyPumps === 'number' && prefs.numberOfDutyPumps > 0) {
+          setNumberOfDutyPumps(prefs.numberOfDutyPumps);
+        }
+        if (typeof prefs.showDischargeSystemCurve === 'boolean') {
+          setShowDischargeSystemCurve(prefs.showDischargeSystemCurve);
+        }
+        if (typeof prefs.showSuctionCurve === 'boolean') {
+          setShowSuctionCurve(prefs.showSuctionCurve);
+        }
+      }
+    } catch (error) {
+      console.error('Error restoring dashboard UI preferences:', error);
+    }
+  }, []);
+
   // Load curves from localStorage on mount
   useEffect(() => {
     // Handle URL parameters first
@@ -723,6 +761,77 @@ export function PumpCurveDashboard() {
 
     setActiveTab(activeTabFromURL);
   }, [searchParams]);
+
+  // Persist discharge system curves so manually entered values survive
+  // navigation. Stamped with the current units so the mount-time restore can
+  // convert them back correctly. Gated by hydratedRef so the initial default
+  // doesn't overwrite previously saved data before restoration completes.
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    try {
+      localStorage.setItem(
+        DISCHARGE_CURVES_KEY,
+        JSON.stringify(
+          dischargeSystemCurveData.map((curve) => ({
+            ...curve,
+            headUnit,
+            flowUnit
+          }))
+        )
+      );
+    } catch (error) {
+      console.error('Error saving discharge curves:', error);
+    }
+  }, [dischargeSystemCurveData, flowUnit, headUnit]);
+
+  // Persist suction curves (same approach as discharge curves above).
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    try {
+      localStorage.setItem(
+        SUCTION_CURVES_KEY,
+        JSON.stringify(
+          suctionCurveData.map((curve) => ({
+            ...curve,
+            headUnit,
+            flowUnit
+          }))
+        )
+      );
+    } catch (error) {
+      console.error('Error saving suction curves:', error);
+    }
+  }, [suctionCurveData, flowUnit, headUnit]);
+
+  // Persist UI preferences (mode, duty count, visibility toggles).
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    try {
+      sessionStorage.setItem(
+        UI_PREFS_KEY,
+        JSON.stringify({
+          dischargeCurveMode,
+          numberOfDutyPumps,
+          showDischargeSystemCurve,
+          showSuctionCurve
+        })
+      );
+    } catch (error) {
+      console.error('Error saving dashboard UI preferences:', error);
+    }
+  }, [
+    dischargeCurveMode,
+    numberOfDutyPumps,
+    showDischargeSystemCurve,
+    showSuctionCurve
+  ]);
+
+  // Mark hydration complete. Declared after the persist effects so that on the
+  // initial commit they see hydratedRef === false and skip; they then run with
+  // restored values on the next render.
+  useEffect(() => {
+    hydratedRef.current = true;
+  }, []);
 
   // Load saved pumps
   useEffect(() => {
@@ -1499,7 +1608,7 @@ export function PumpCurveDashboard() {
       (system) => system.id !== id
     );
     setDischargeSystemCurveData(updated);
-    localStorage.setItem('dischargeCurves', JSON.stringify(updated));
+    // Persistence is handled by the discharge-curves effect (stamped with units).
   };
 
   // Suction curve handlers
@@ -1533,7 +1642,7 @@ export function PumpCurveDashboard() {
       (suction) => suction.id !== id
     );
     setSuctionCurveData(updatedCurves);
-    localStorage.setItem('suctionCurves', JSON.stringify(updatedCurves));
+    // Persistence is handled by the suction-curves effect (stamped with units).
   };
 
   // Saved pumps handlers
