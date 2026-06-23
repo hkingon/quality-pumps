@@ -56,6 +56,9 @@ export function convertFlow(
   fromUnit: FlowUnit,
   toUnit: FlowUnit
 ): number {
+  // Guard against missing/invalid values so callers that immediately call
+  // .toFixed() on the result don't crash on undefined/null/NaN.
+  if (typeof value !== 'number' || !isFinite(value)) return 0;
   if (fromUnit === toUnit) return value;
 
   // Convert to L/min first, then to target unit
@@ -70,6 +73,9 @@ export function convertHead(
   fromUnit: HeadUnit,
   toUnit: HeadUnit
 ): number {
+  // Guard against missing/invalid values (e.g. a saved pump without maxHead)
+  // before calling .toFixed(), which throws on undefined.
+  if (typeof value !== 'number' || !isFinite(value)) return 0;
   if (fromUnit === toUnit) return parseFloat(value.toFixed(2));
   const converted =
     (value * HEAD_CONVERSION[fromUnit]) / HEAD_CONVERSION[toUnit];
