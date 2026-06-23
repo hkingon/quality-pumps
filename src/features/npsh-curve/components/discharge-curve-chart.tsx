@@ -531,23 +531,6 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
     });
   }
 
-  // Add BEP points for pump curves
-  bepPoints.forEach((point, index) => {
-    const pumpName = pumpData[index]?.name || `Pump ${index + 1}`;
-    datasets.push({
-      label: `BEP ${pumpName}`,
-      data: [{ x: point.flow, y: point.head }],
-      borderColor: getPumpColor(index),
-      backgroundColor: getPumpColor(index),
-      pointRadius: 6,
-      pointStyle: 'circle',
-      type: 'scatter',
-      showLine: false,
-      yAxisID: 'y'
-      // legendDisplay: false
-    });
-  });
-
   // Add modified BEP points for pump curves
   modifiedBepPoints.forEach((point, index) => {
     if (point.flow > 0 && point.head > 0) {
