@@ -283,28 +283,38 @@ function getHeadAtDutyFlow(
 // Section 5 — Efficiency and power data fallback order
 // =============================================================================
 
-/** Table 5-1: C constants by pump category */
+/**
+ * Table 5-1 (refined per Pump Categories spec §6): EU 547/2012 C constant by
+ * Installation Configuration + Pump Class + rated speed. Reads the new
+ * `installationConfiguration` tags, with a tolerant fallback to the legacy
+ * `configuration` field so un-migrated pumps still score sensibly.
+ */
 function getCConstant(pump: SavedPump, ratedRpm: number): number {
-  const classes = (pump.pumpClass || []).filter((c): c is string => typeof c === 'string');
-  const config = (pump.configuration || []).filter((c): c is string => typeof c === 'string');
-  const combined = [...classes, ...config];
+  const lc = (arr?: string[]) =>
+    (arr || []).filter((c): c is string => typeof c === 'string').map((c) => c.toLowerCase());
 
-  // Borehole / Bore Pump
-  if (combined.some(c => c.toLowerCase().includes('borehole') || c.toLowerCase().includes('bore'))) {
-    return 128.79;
-  }
+  const classes = lc(pump.pumpClass);
+  const legacyConfig = lc(pump.configuration);
+  const install = [...lc(pump.installationConfiguration), ...legacyConfig];
+  const allClass = [...classes, ...legacyConfig];
+  const high = ratedRpm >= 2200;
 
-  // Multistage
-  if (combined.some(c =>
-    c.toLowerCase().includes('multistage') ||
-    c.toLowerCase() === 'vertical turbine'
-  )) {
-    return 133.95;
-  }
+  const isMultistage =
+    allClass.some((c) => c.includes('multistage')) || allClass.some((c) => c === 'vertical turbine');
+  const isSubOrBore = install.some(
+    (c) => c.includes('submersible') || c.includes('borehole') || c.includes('bore')
+  ) || allClass.some((c) => c.includes('borehole') || c.includes('bore'));
 
-  // End suction / surface centrifugal
-  if (ratedRpm >= 2200) return 130.27;
-  return 128.07;
+  // Multistage rows (speed-independent)
+  if (isMultistage && isSubOrBore) return 128.79; // MSS — submersible / borehole
+  if (isMultistage) return 133.95; // MS-V — surface
+
+  const closeCoupled = install.some((c) => c.includes('close-coupled') || c.includes('close coupled'));
+  const inline = install.some((c) => c.includes('inline'));
+
+  if (inline && closeCoupled) return high ? 133.69 : 132.30; // ESCCi
+  if (closeCoupled) return high ? 130.77 : 128.46; // ESCC
+  return high ? 130.27 : 128.07; // ESOB — Long-Coupled / untagged surface centrifugal
 }
 
 /** Table 5-2: derate factor — minimum if multiple apply */

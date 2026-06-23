@@ -10,7 +10,8 @@ export interface FilterState {
   impellerType: string[];
   installationConfiguration: string[];
   otherTraits: string[];
-  phases: string[];
+  powerSource: string[];
+  wettedMaterials: string[];
   poles: string[];
   brand: string[];
 
@@ -23,6 +24,7 @@ export interface FilterState {
   temperatureRange: NumericRange;
 
   // Legacy fields (keep for backward compatibility)
+  phases: string[];
   model: string;
 }
 
@@ -32,7 +34,8 @@ export const initialFilters: FilterState = {
   impellerType: [],
   installationConfiguration: [],
   otherTraits: [],
-  phases: [],
+  powerSource: [],
+  wettedMaterials: [],
   poles: [],
   brand: [],
   powerRange: { min: null, max: null },
@@ -41,10 +44,11 @@ export const initialFilters: FilterState = {
   inletSizeRange: { min: null, max: null },
   outletSizeRange: { min: null, max: null },
   temperatureRange: { min: null, max: null },
+  phases: [],
   model: ''
 };
 
-// Hierarchical filter options
+// Hierarchical filter options (Pump Class — "What kind of pump is it?")
 export const PUMP_CLASS_OPTIONS = {
   Centrifugal: [
     'End Suction',
@@ -54,66 +58,108 @@ export const PUMP_CLASS_OPTIONS = {
     'Vertical Turbine',
     'Mixed Flow',
     'Axial Flow',
-    'Self-Priming',
-    'Jet Pump'
+    'Jet Pump',
+    'Regenerative / Peripheral',
+    'Circulator (Wet Rotor)'
   ],
   'Positive Displacement': [
     'Diaphragm',
     'Piston',
-    'Progressive Cavity',
+    'Progressive Cavity (Helical Rotor)',
     'Gear',
     'Lobe',
-    'Rotary Vane'
+    'Rotary Vane',
+    'Peristaltic (Hose)',
+    'Flexible Impeller'
   ],
   'Submersible Sewage & Drainage': [
-    'Vortex',
+    'Sewage (Solids Handling)',
     'Grinder',
     'Cutter',
     'Drainage',
     'Slurry'
-  ],
-  'Solar / DC': ['Solar Submersible', 'Solar Surface Mount']
+  ]
 };
 
+// Application — "What job is it sold for?"
 export const APPLICATION_OPTIONS = [
   'Stormwater',
-  'Sewage',
+  'Sewage & Wastewater',
+  'Greywater / Effluent',
+  'Dewatering (Construction & Mining)',
   'Irrigation',
   'Cold Water Supply',
+  'Rainwater / Tank Supply',
+  'Water Transfer',
   'Pressure Boosting',
-  'Borehole Supply',
-  'Fire (AS2941)'
+  'Hot & Chilled Water Circulation',
+  'Bore Water Supply',
+  'Fire — AS2941 Certified Systems',
+  'Firefighting — General / Rural'
 ];
 
+// Impeller Type — "What is inside it?"
 export const IMPELLER_TYPE_OPTIONS = [
+  'N/A — No Impeller (PD pumps)',
   'Closed',
   'Semi-Open',
   'Open',
-  'Vortex',
-  'Channel',
-  'Screw',
-  'Axial Flow',
-  'Mixed Flow'
+  'Vortex (Recessed)',
+  'Single Channel',
+  'Multi-Channel',
+  'Screw (Screw-Centrifugal)',
+  'Axial (Propeller)',
+  'Mixed Flow',
+  'Peripheral (Turbine)',
+  'Flexible Vane'
 ];
 
+// Installation Configuration — "How / where is it installed?"
 export const INSTALLATION_CONFIG_OPTIONS = [
+  'Surface-Mounted',
+  'Submersible',
+  'Borehole',
+  'Inline',
+  'Close-Coupled',
+  'Long-Coupled / Baseplate',
+  'Portable / Trolley',
   'Single Pump',
   'Dual Pump',
-  'Triplex',
-  'Inline',
-  'Submersible',
-  'Surface-Mounted',
-  'Borehole'
+  'Triplex'
 ];
 
+// Other Traits — "What extra capabilities does it have?"
 export const OTHER_TRAITS_OPTIONS = [
   'Self-Priming',
   'Dry-Run Capable',
   'VFD Compatible',
-  'Class 1 Zone 2 Rated',
-  'AS4020 (Drinking Water) Approved'
+  'Automatic Operation (Float / Built-in Controller)',
+  'Built-in Thermal Protection',
+  'Hazardous Area — Class 1 Zone 2',
+  'AS/NZS 4020 Approved (Drinking Water)',
+  'WaterMark Certified'
 ];
 
+// Power Source — "What powers it?" (rename of Phases)
+export const POWER_SOURCE_OPTIONS = [
+  '1 Phase (230 V)',
+  '3 Phase (415 V)',
+  'DC (Solar)',
+  'Petrol Engine',
+  'Diesel Engine'
+];
+
+// Wetted Materials — "What is it made of?"
+export const WETTED_MATERIALS_OPTIONS = [
+  'Cast Iron',
+  '304 Stainless Steel',
+  '316 Stainless Steel',
+  'Thermoplastic / Composite',
+  'Bronze',
+  'Brass'
+];
+
+// Legacy (kept for backward compatibility with un-migrated data)
 export const PHASE_OPTIONS = ['1 Phase', '3 Phase', 'DC'];
 
 export const POLE_OPTIONS = ['2', '4', '6', '8'];

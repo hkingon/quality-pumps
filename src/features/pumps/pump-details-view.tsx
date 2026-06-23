@@ -107,6 +107,9 @@ interface Pump {
   other_traits?: string[];
   min_temp?: number | null;
   poles?: number | null;
+  installation_configuration?: string[];
+  power_source?: string;
+  wetted_materials?: string[];
 }
 
 interface PumpDetailViewProps {
@@ -480,38 +483,29 @@ const PumpDetailView: React.FC<PumpDetailViewProps> = ({
                       </p>
                       <p className='font-semibold'>{pump.model}</p>
                     </div>
-                    <div>
-                      <p className='text-muted-foreground text-sm font-medium'>
-                        Type
-                      </p>
-                      <div className='flex flex-wrap gap-1'>
-                        {Array.isArray(pump.type) ? (
-                          pump.type.map((t) => (
-                            <Badge key={t} variant='secondary'>
-                              {t}
-                            </Badge>
-                          ))
-                        ) : (
-                          <Badge variant='secondary'>{pump.type}</Badge>
-                        )}
+                    {pump.installation_configuration &&
+                      pump.installation_configuration.length > 0 && (
+                        <div>
+                          <p className='text-muted-foreground text-sm font-medium'>
+                            Installation Configuration
+                          </p>
+                          <div className='flex flex-wrap gap-1'>
+                            {pump.installation_configuration.map((c: string) => (
+                              <Badge key={c} variant='outline'>
+                                {c}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    {pump.power_source && (
+                      <div>
+                        <p className='text-muted-foreground text-sm font-medium'>
+                          Power Source
+                        </p>
+                        <Badge variant='secondary'>{pump.power_source}</Badge>
                       </div>
-                    </div>
-                    <div>
-                      <p className='text-muted-foreground text-sm font-medium'>
-                        Configuration
-                      </p>
-                      <div className='flex flex-wrap gap-1'>
-                        {Array.isArray(pump.configuration) ? (
-                          pump.configuration.map((c) => (
-                            <Badge key={c} variant='outline'>
-                              {c}
-                            </Badge>
-                          ))
-                        ) : (
-                          <Badge variant='outline'>{pump.configuration}</Badge>
-                        )}
-                      </div>
-                    </div>
+                    )}
                     <div>
                       <p className='text-muted-foreground text-sm font-medium'>
                         Min Temperature
@@ -570,6 +564,22 @@ const PumpDetailView: React.FC<PumpDetailViewProps> = ({
                         </div>
                       </div>
                     )}
+
+                    {pump.wetted_materials &&
+                      pump.wetted_materials.length > 0 && (
+                        <div className='col-span-2 space-y-2'>
+                          <p className='text-muted-foreground text-sm font-medium'>
+                            Wetted Materials
+                          </p>
+                          <div className='flex flex-wrap gap-2'>
+                            {pump.wetted_materials.map((m: string) => (
+                              <Badge key={m} variant='outline' className='text-xs'>
+                                {m}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                   </div>
                   <div className='space-y-3'>
                     <div>

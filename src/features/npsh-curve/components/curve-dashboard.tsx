@@ -1802,6 +1802,9 @@ export function PumpCurveDashboard() {
       otherTraits: pump.other_traits || [],
       poles: pump.poles,
       minTemp: pump.min_temp,
+      installationConfiguration: pump.installation_configuration || [],
+      powerSource: pump.power_source || undefined,
+      wettedMaterials: pump.wetted_materials || [],
     };
   }
 

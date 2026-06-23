@@ -39,7 +39,7 @@ import {
   DialogTitle,
   DialogTrigger
 } from '@/components/ui/dialog';
-import { APPLICATION_OPTIONS, IMPELLER_TYPE_OPTIONS, INSTALLATION_CONFIG_OPTIONS, OTHER_TRAITS_OPTIONS, POLE_OPTIONS, PUMP_CLASS_OPTIONS } from '@/types/filters';
+import { APPLICATION_OPTIONS, IMPELLER_TYPE_OPTIONS, INSTALLATION_CONFIG_OPTIONS, OTHER_TRAITS_OPTIONS, POLE_OPTIONS, PUMP_CLASS_OPTIONS, POWER_SOURCE_OPTIONS, WETTED_MATERIALS_OPTIONS } from '@/types/filters';
 import { MultiSelectFilter } from '@/components/multi-select-filter';
 
 // Define interfaces for type safety
@@ -88,6 +88,9 @@ interface PumpFormData {
   otherTraits?: string[];
   minTemp?: number | null;
   poles?: number | null;
+  installationConfiguration: string[];
+  wettedMaterials: string[];
+  powerSource?: string;
 }
 
 interface UploadedFiles {
@@ -198,7 +201,9 @@ const blankPump: PumpFormData = {
   otherTraits: [] as string[],
   poles: null as number | null,
   minTemp: null as number | null,
-
+  installationConfiguration: [],
+  wettedMaterials: [],
+  powerSource: '',
 };
 
 const dutyKeys: Record<string, string[]> = {
@@ -209,6 +214,14 @@ const dutyKeys: Record<string, string[]> = {
 };
 
 const phaseOptions = ['1', '3'];
+
+/** Keep the legacy numeric `phases` column in sync with the new Power Source value. */
+const powerSourceToPhases = (powerSource?: string): number => {
+  if (!powerSource) return 0;
+  if (powerSource.startsWith('1 Phase')) return 1;
+  if (powerSource.startsWith('3 Phase')) return 3;
+  return 0; // DC / engines have no phase count
+};
 
 const EditPump: React.FC = () => {
   const [pumpForm, setPumpForm] = useState<PumpFormData>(blankPump);
@@ -319,6 +332,9 @@ const EditPump: React.FC = () => {
         otherTraits: data.other_traits || [],
         poles: data.poles || null,
         minTemp: data.min_temp || null,
+        installationConfiguration: data.installation_configuration || [],
+        wettedMaterials: data.wetted_materials || [],
+        powerSource: data.power_source || '',
       });
 
       const handleExistingCustomValues = () => {
@@ -650,11 +666,10 @@ const EditPump: React.FC = () => {
         kw: parseFloat(pumpForm.kw) || 0,
         inlet: parseFloat(pumpForm.inlet) || 0,
         outlet: parseFloat(pumpForm.outlet) || 0,
-        configuration: pumpForm.configuration,
-        type: pumpForm.type,
         voltage: parseFloat(pumpForm.voltage) || 0,
         amps: parseFloat(pumpForm.amps) || 0,
-        phases: parseInt(pumpForm.phases) || 0,
+        // Numeric phases kept in sync from Power Source (electrical display / back-compat)
+        phases: powerSourceToPhases(pumpForm.powerSource),
         max_temp: parseFloat(pumpForm.maxTemp) || 0,
         pvsq: pumpForm.pvsq.map((p) => ({
           head: parseFloat(p.head) || 0,
@@ -688,6 +703,13 @@ const EditPump: React.FC = () => {
           : null,
         poles: pumpForm.poles,
         min_temp: pumpForm.minTemp,
+        installation_configuration: pumpForm.installationConfiguration?.length
+          ? pumpForm.installationConfiguration
+          : null,
+        wetted_materials: pumpForm.wettedMaterials?.length
+          ? pumpForm.wettedMaterials
+          : null,
+        power_source: pumpForm.powerSource || null,
       };
 
       // Update pump in Supabase
@@ -856,111 +878,6 @@ const EditPump: React.FC = () => {
                       placeholder='Enter pump model'
                     />
                   </div>
-                  <div className='space-y-2'>
-                    <Label htmlFor='type'>Type</Label>
-                    <MultiSelectFilter
-                      label=''
-                      options={dynamicPumpTypes.filter(t => t !== 'Add New')}
-                      selected={pumpForm.type}
-                      onSelectionChange={(selected) =>
-                        setPumpForm((prev) => ({ ...prev, type: selected }))
-                      }
-                      placeholder='Select pump types...'
-                    />
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      className='mt-2'
-                      onClick={() => setShowCustomType(true)}
-                    >
-                      <Plus className='mr-2 h-4 w-4' />
-                      Add Custom Type
-                    </Button>
-                    {showCustomType && (
-                      <div className='mt-2 flex gap-2'>
-                        <Input
-                          placeholder='Enter custom pump type'
-                          value={customType}
-                          onChange={(e) => setCustomType(e.target.value)}
-                          onKeyPress={(e) => {
-                            if (e.key === 'Enter') {
-                              handleCustomTypeSubmit();
-                            }
-                          }}
-                        />
-                        <Button size='sm' onClick={handleCustomTypeSubmit}>
-                          Add
-                        </Button>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          onClick={() => {
-                            setShowCustomType(false);
-                            setCustomType('');
-                          }}
-                        >
-                          <X className='h-4 w-4' />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                  <div className='space-y-2'>
-                    <Label htmlFor='configuration'>Configuration</Label>
-                    <MultiSelectFilter
-                      label=''
-                      options={dynamicConfigurations.filter(c => c !== 'Add New')}
-                      selected={pumpForm.configuration}
-                      onSelectionChange={(selected) =>
-                        setPumpForm((prev) => ({
-                          ...prev,
-                          configuration: selected
-                        }))
-                      }
-                      placeholder='Select configurations...'
-                    />
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      className='mt-2'
-                      onClick={() => setShowCustomConfiguration(true)}
-                    >
-                      <Plus className='mr-2 h-4 w-4' />
-                      Add Custom Configuration
-                    </Button>
-                    {showCustomConfiguration && (
-                      <div className='mt-2 flex gap-2'>
-                        <Input
-                          placeholder='Enter custom configuration'
-                          value={customConfiguration}
-                          onChange={(e) =>
-                            setCustomConfiguration(e.target.value)
-                          }
-                          onKeyPress={(e) => {
-                            if (e.key === 'Enter') {
-                              handleCustomConfigurationSubmit();
-                            }
-                          }}
-                        />
-                        <Button
-                          size='sm'
-                          onClick={handleCustomConfigurationSubmit}
-                        >
-                          Add
-                        </Button>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          onClick={() => {
-                            setShowCustomConfiguration(false);
-                            setCustomConfiguration('');
-                          }}
-                        >
-                          <X className='h-4 w-4' />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-
                   <>
                     {/* Classification Section */}
                     <div className='col-span-2'>
@@ -1002,6 +919,25 @@ const EditPump: React.FC = () => {
                           }))
                         }
                         placeholder='Select applications...'
+                      />
+                    </div>
+
+                    {/* Installation Configuration */}
+                    <div className='space-y-2'>
+                      <Label htmlFor='installationConfiguration'>
+                        Installation Configuration
+                      </Label>
+                      <MultiSelectFilter
+                        label=''
+                        options={INSTALLATION_CONFIG_OPTIONS}
+                        selected={pumpForm.installationConfiguration}
+                        onSelectionChange={(selected) =>
+                          setPumpForm((prev) => ({
+                            ...prev,
+                            installationConfiguration: selected
+                          }))
+                        }
+                        placeholder='Select installation...'
                       />
                     </div>
 
@@ -1079,6 +1015,49 @@ const EditPump: React.FC = () => {
                         Select all applicable traits (VFD compatible,
                         self-priming, etc.)
                       </p>
+                    </div>
+
+                    {/* Power Source */}
+                    <div className='space-y-2'>
+                      <Label htmlFor='powerSource'>Power Source</Label>
+                      <Select
+                        value={pumpForm.powerSource || ''}
+                        onValueChange={(value) =>
+                          setPumpForm((prev) => ({ ...prev, powerSource: value }))
+                        }
+                      >
+                        <SelectTrigger id='powerSource'>
+                          <SelectValue placeholder='Select power source...' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {POWER_SOURCE_OPTIONS.map((ps) => (
+                            <SelectItem key={ps} value={ps}>
+                              {ps}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className='text-muted-foreground text-xs'>
+                        Poles only apply to electric pumps — leave blank for
+                        engine-driven.
+                      </p>
+                    </div>
+
+                    {/* Wetted Materials - Multi-Select */}
+                    <div className='col-span-2 space-y-2'>
+                      <Label>Wetted Materials</Label>
+                      <MultiSelectFilter
+                        label=''
+                        options={WETTED_MATERIALS_OPTIONS}
+                        selected={pumpForm.wettedMaterials}
+                        onSelectionChange={(selected) =>
+                          setPumpForm((prev) => ({
+                            ...prev,
+                            wettedMaterials: selected
+                          }))
+                        }
+                        placeholder='Select wetted materials...'
+                      />
                     </div>
 
                     {/* Min Temperature - NEW FIELD */}
@@ -1237,26 +1216,6 @@ const EditPump: React.FC = () => {
                       onChange={(e) => handleFormChange('amps', e.target.value)}
                       placeholder='Current rating'
                     />
-                  </div>
-                  <div className='space-y-2'>
-                    <Label htmlFor='phases'>Phases</Label>
-                    <Select
-                      value={pumpForm.phases}
-                      onValueChange={(value) =>
-                        handleFormChange('phases', value)
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select phases' />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {phaseOptions.map((phase) => (
-                          <SelectItem key={phase} value={phase}>
-                            {phase} Phase
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
                   </div>
                 </CardContent>
               </Card>

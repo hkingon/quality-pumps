@@ -26,7 +26,8 @@ import {
   IMPELLER_TYPE_OPTIONS,
   INSTALLATION_CONFIG_OPTIONS,
   OTHER_TRAITS_OPTIONS,
-  PHASE_OPTIONS,
+  POWER_SOURCE_OPTIONS,
+  WETTED_MATERIALS_OPTIONS,
   POLE_OPTIONS
 } from '@/types/filters';
 import {
@@ -167,7 +168,8 @@ export function SavedPumpsList({
     if (filters.impellerType.length > 0) count++;
     if (filters.installationConfiguration.length > 0) count++;
     if (filters.otherTraits.length > 0) count++;
-    if (filters.phases.length > 0) count++;
+    if (filters.powerSource.length > 0) count++;
+    if (filters.wettedMaterials.length > 0) count++;
     if (filters.poles.length > 0) count++;
     if (filters.brand.length > 0) count++;
 
@@ -243,7 +245,7 @@ export function SavedPumpsList({
         return false;
       if (
         !matchesMultiSelect(
-          pump.configuration,
+          pump.installationConfiguration || pump.configuration,
           filters.installationConfiguration
         )
       )
@@ -257,24 +259,12 @@ export function SavedPumpsList({
         if (!hasMatchingTrait) return false;
       }
 
-      if (filters.phases.length > 0) {
-        const pumpPhaseStr = pump.phases?.toString();
-        const matchesPhase = filters.phases.some((phase) => {
-          if (phase === '1 Phase') return pumpPhaseStr === '1';
-          if (phase === '3 Phase') return pumpPhaseStr === '3';
-          if (phase === 'DC') {
-            const typeArr = Array.isArray(pump.type) ? pump.type : [pump.type || ''];
-            return typeArr.some(t =>
-              typeof t === 'string' && (
-                t.toLowerCase().includes('dc') ||
-                t.toLowerCase().includes('solar')
-              )
-            );
-          }
-          return false;
-        });
-        if (!matchesPhase) return false;
-      }
+      // Power Source (replaces the old numeric Phases filter)
+      if (!matchesMultiSelect(pump.powerSource || '', filters.powerSource))
+        return false;
+
+      if (!matchesMultiSelect(pump.wettedMaterials, filters.wettedMaterials))
+        return false;
 
       if (!matchesMultiSelect(pump.poles?.toString(), filters.poles))
         return false;
@@ -516,15 +506,26 @@ export function SavedPumpsList({
               placeholder='Select traits...'
             />
 
-            {/* Phases */}
+            {/* Power Source */}
             <MultiSelectFilter
-              label='Phases'
-              options={PHASE_OPTIONS}
-              selected={filters.phases}
+              label='Power Source'
+              options={POWER_SOURCE_OPTIONS}
+              selected={filters.powerSource}
               onSelectionChange={(selected) =>
-                setFilters((prev) => ({ ...prev, phases: selected }))
+                setFilters((prev) => ({ ...prev, powerSource: selected }))
               }
-              placeholder='Select phases...'
+              placeholder='Select power source...'
+            />
+
+            {/* Wetted Materials */}
+            <MultiSelectFilter
+              label='Wetted Materials'
+              options={WETTED_MATERIALS_OPTIONS}
+              selected={filters.wettedMaterials}
+              onSelectionChange={(selected) =>
+                setFilters((prev) => ({ ...prev, wettedMaterials: selected }))
+              }
+              placeholder='Select materials...'
             />
 
             {/* Poles */}

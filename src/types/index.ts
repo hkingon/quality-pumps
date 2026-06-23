@@ -135,6 +135,10 @@ export interface SavedPump {
   otherTraits?: string[];
   minTemp?: number;
   poles?: number;
+  // New taxonomy fields (Pump Categories spec)
+  installationConfiguration?: string[];
+  powerSource?: string;
+  wettedMaterials?: string[];
 }
 
 export interface PumpCurvePoint {

@@ -59,6 +59,7 @@ import {
 import { toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PumpCategoryReview } from './pump-category-review';
 
 interface DashboardUser {
   user_id: string;
@@ -99,6 +100,15 @@ interface UserDetails {
 export default function AdminViewPage() {
   const searchParams = useSearchParams();
   const isMounted = useRef(false);
+  const directoryRef = useRef<HTMLDivElement>(null);
+
+  // Filter + scroll the directory to a specific user (from Pump Category Review).
+  const handleLocateUser = (email: string) => {
+    setSearchTerm(email);
+    setDebouncedSearch(email);
+    setCurrentPage(1);
+    directoryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const [users, setUsers] = useState<DashboardUser[]>([]);
   const [tableLoading, setTableLoading] = useState(true);
@@ -267,6 +277,8 @@ export default function AdminViewPage() {
         </Button>
       </div>
 
+      <PumpCategoryReview onLocateUser={handleLocateUser} />
+
       {/* Summary Cards */}
       <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
         {/* Total Users */}
@@ -355,7 +367,7 @@ export default function AdminViewPage() {
       </div>
 
       {/* Main Content Card */}
-      <Card className='shadow-xs'>
+      <Card className='shadow-xs scroll-mt-4' ref={directoryRef}>
         <CardHeader>
           <CardTitle>User Activity Directory</CardTitle>
           <CardDescription>
