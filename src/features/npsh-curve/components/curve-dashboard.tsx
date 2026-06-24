@@ -474,8 +474,12 @@ export function PumpCurveDashboard() {
         continue;
       }
 
-      const dutyFlow = convertFlow(rep.operatingPoint.flow, orig.flowUnit, flowUnit);
+      // operatingPoint.flow and pAbs are combined-system values (all N pumps).
+      // Divide by N so the card shows what one pump is doing.
+      const combinedFlow = convertFlow(rep.operatingPoint.flow, orig.flowUnit, flowUnit);
+      const dutyFlow = combinedFlow / numberOfDutyPumps;
       const dutyHead = convertHead(rep.operatingPoint.head, orig.headUnit, headUnit);
+      const absorbedKWPerPump = rep.pAbs / numberOfDutyPumps;
       map[active.id] = {
         capable: true,
         score: result.finalScore,
@@ -485,8 +489,8 @@ export function PumpCurveDashboard() {
         dutyFlow,
         dutyHead,
         efficiencyPct: rep.eta * 100,
-        absorbedKW: rep.pAbs,
-        kwhPerML: energyIntensityKWhPerML(rep.pAbs, dutyFlow, flowUnit),
+        absorbedKW: absorbedKWPerPump,
+        kwhPerML: energyIntensityKWhPerML(absorbedKWPerPump, dutyFlow, flowUnit),
         bepPct: rep.rqo * 100
       };
     }

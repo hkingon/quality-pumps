@@ -191,16 +191,18 @@ export function PumpReport({
     // Per-duty rows (Section 2) — keep order aligned with validDuties
     const dutyRows = result.dutyMetrics.map((m: DutyMetric, i) => {
       const duty = validDuties[i];
-      const reqFlow = duty?.operatingFlow ?? 0;
+      // Per-pump required and actual flow (head is the same for parallel pumps)
+      const reqFlow = (duty?.operatingFlow ?? 0) / numberOfDutyPumps;
       const reqHead = duty?.operatingHead ?? 0;
-      const actFlow = convertFlow(m.operatingPoint.flow, pump.flowUnit, flowUnit);
+      const actFlowTotal = convertFlow(m.operatingPoint.flow, pump.flowUnit, flowUnit);
+      const actFlow = actFlowTotal / numberOfDutyPumps;
       const actHead = convertHead(m.operatingPoint.head, pump.headUnit, headUnit);
       const flowMargin = reqFlow > 0 ? ((actFlow - reqFlow) / reqFlow) * 100 : undefined;
       const headMargin = reqHead > 0 ? ((actHead - reqHead) / reqHead) * 100 : undefined;
       const b = getSuitabilityBadge(m.score, m.isHidden);
-      // NPSH at this duty
-      const npshr = npshrAtFlow(pump.npshRequired, m.operatingPoint.flow, speedRatio);
-      const npshaDisp = interpAt(suctionPts, actFlow);
+      // NPSH: r evaluated at per-pump flow; a evaluated at total system flow (suction carries total Q)
+      const npshr = npshrAtFlow(pump.npshRequired, m.operatingPoint.flow / numberOfDutyPumps, speedRatio);
+      const npshaDisp = interpAt(suctionPts, actFlowTotal);
       const npsha = npshaDisp !== null ? convertHead(npshaDisp, headUnit, 'm') : null;
       const npshMargin = npsha !== null && npshr !== null ? npsha - npshr : null;
       return {
@@ -229,10 +231,11 @@ export function PumpReport({
 
     const dutyCurve =
       validDuties.find((d) => (d.name || 'Unnamed Duty') === rep.dutyName) ?? validDuties[0];
-    const requiredFlow = dutyCurve?.operatingFlow ?? 0;
+    // Per-pump required and actual flow/head (head is same for all parallel pumps)
+    const requiredFlow = (dutyCurve?.operatingFlow ?? 0) / numberOfDutyPumps;
     const requiredHead = dutyCurve?.operatingHead ?? 0;
 
-    const actualFlow = convertFlow(rep.operatingPoint.flow, pump.flowUnit, flowUnit);
+    const actualFlow = convertFlow(rep.operatingPoint.flow, pump.flowUnit, flowUnit) / numberOfDutyPumps;
     const actualHead = convertHead(rep.operatingPoint.head, pump.headUnit, headUnit);
 
     const flowMargin = requiredFlow > 0 ? ((actualFlow - requiredFlow) / requiredFlow) * 100 : undefined;
@@ -242,7 +245,7 @@ export function PumpReport({
     const hM = convertHead(actualHead, headUnit, 'm');
     const hydraulicKW = (SCORING_CONFIG.RHO * SCORING_CONFIG.G * qM3s * hM) / 1000;
 
-    const absorbedKW = rep.pAbs;
+    const absorbedKW = rep.pAbs / numberOfDutyPumps;
     const motorSizeKw = pump.kw;
     const motorLoading = motorSizeKw && motorSizeKw > 0 ? absorbedKW / motorSizeKw : undefined;
     const energyIntensity = energyIntensityKWhPerML(absorbedKW, actualFlow, flowUnit);
