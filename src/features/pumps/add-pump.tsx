@@ -222,6 +222,43 @@ const AddPump: React.FC = () => {
     }));
   };
 
+  const handleDutyPointPaste = (
+    e: React.ClipboardEvent<HTMLInputElement>,
+    table: 'pvsq' | 'npshr' | 'motorPower' | 'efficiency',
+    startIdx: number,
+    colIndex: number
+  ): void => {
+    const text = e.clipboardData.getData('text');
+    const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
+    if (lines.length <= 1) return;
+
+    e.preventDefault();
+    const keys = dutyKeys[table];
+
+    setPumpForm((prev) => {
+      const rows = [...prev[table]];
+      lines.forEach((line, offset) => {
+        const idx = startIdx + offset;
+        const parts = line.split('\t');
+
+        if (idx >= rows.length) {
+          rows.push(Object.fromEntries(keys.map((k) => [k, ''])) as any);
+        }
+
+        if (parts.length >= 2 && colIndex === 0) {
+          keys.forEach((key, ki) => {
+            if (parts[ki] !== undefined) {
+              rows[idx] = { ...rows[idx], [key]: parts[ki].trim() };
+            }
+          });
+        } else {
+          rows[idx] = { ...rows[idx], [keys[colIndex]]: parts[0].trim() };
+        }
+      });
+      return { ...prev, [table]: rows };
+    });
+  };
+
   const addDutyPoint = (table: 'pvsq' | 'npshr' | 'motorPower' | 'efficiency'): void => {
     setPumpForm((prev) => ({
       ...prev,
@@ -1003,6 +1040,7 @@ const AddPump: React.FC = () => {
                             e.target.value
                           )
                         }
+                        onPaste={(e) => handleDutyPointPaste(e, 'pvsq', i, 0)}
                       />
                       <Input
                         type='number'
@@ -1016,6 +1054,7 @@ const AddPump: React.FC = () => {
                             e.target.value
                           )
                         }
+                        onPaste={(e) => handleDutyPointPaste(e, 'pvsq', i, 1)}
                       />
                       <Button
                         size='icon'
@@ -1074,6 +1113,7 @@ const AddPump: React.FC = () => {
                             e.target.value
                           )
                         }
+                        onPaste={(e) => handleDutyPointPaste(e, 'npshr', i, 0)}
                       />
                       <Input
                         type='number'
@@ -1087,6 +1127,7 @@ const AddPump: React.FC = () => {
                             e.target.value
                           )
                         }
+                        onPaste={(e) => handleDutyPointPaste(e, 'npshr', i, 1)}
                       />
                       <Button
                         size='icon'
@@ -1145,6 +1186,7 @@ const AddPump: React.FC = () => {
                             e.target.value
                           )
                         }
+                        onPaste={(e) => handleDutyPointPaste(e, 'efficiency', i, 0)}
                       />
                       <Input
                         type='number'
@@ -1158,6 +1200,7 @@ const AddPump: React.FC = () => {
                             e.target.value
                           )
                         }
+                        onPaste={(e) => handleDutyPointPaste(e, 'efficiency', i, 1)}
                       />
                       <Button
                         size='icon'
@@ -1218,6 +1261,7 @@ const AddPump: React.FC = () => {
                             e.target.value
                           )
                         }
+                        onPaste={(e) => handleDutyPointPaste(e, 'motorPower', i, 0)}
                       />
                       <Input
                         type='number'
@@ -1231,6 +1275,7 @@ const AddPump: React.FC = () => {
                             e.target.value
                           )
                         }
+                        onPaste={(e) => handleDutyPointPaste(e, 'motorPower', i, 1)}
                       />
                       <Button
                         size='icon'
