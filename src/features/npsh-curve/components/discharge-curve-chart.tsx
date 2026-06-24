@@ -16,6 +16,7 @@ import { Download, Zap } from 'lucide-react';
 import { PumpData, SystemCurveData } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { get } from 'http';
+import { getPumpColor } from '@/lib/pump-colors';
 
 ChartJS.register(
   LineElement,
@@ -74,36 +75,10 @@ interface DischargeCurveChartProps {
   modifiedCombinedBepPoints: PumpCurvePoint[];
 }
 
-const pumpColors = [
-  '#00B8D4',
-  '#43A047',
-  '#F4511E',
-  '#6A1B9A',
-  '#AF3E3E',
-  '#F564A9'
-];
 const dischargeColors = ['#FFD600', '#0097A7', '#8E24AA', '#D81B60'];
 const motorPowerColors = ['#AB47BC', '#7B1FA2', '#4A148C', '#D81B60'];
 const efficiencyColors = ['#4CAF50', '#2E7D32', '#1B5E20', '#66BB6A'];
 
-const generateDistinctColor = (index: number): string => {
-  const goldenRatio = 0.618033988749895;
-  let hue = (index * goldenRatio * 360) % 360;
-
-  if (hue >= 45 && hue <= 65) {
-    hue = (hue + 30) % 360;
-  }
-
-  const saturation = 65 + (index % 3) * 10;
-  const lightness = 50 + (index % 2) * 10;
-
-  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-};
-
-// Update the color selection in your functions
-const getPumpColor = (index: number): string => {
-  return generateDistinctColor(index);
-};
 
 const findLineIntersection = (
   x1: number, y1: number, x2: number, y2: number,

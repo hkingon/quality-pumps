@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Download, Eye, EyeOff } from 'lucide-react';
 import { SystemCurveData, SuctionCurveData } from '@/types';
+import { getPumpColor } from '@/lib/pump-colors';
 
 ChartJS.register(
   LineElement,
@@ -61,14 +62,6 @@ interface NpshCurveChartProps {
   segmentedModifiedNpshCurves: SegmentedPumpCurve[];
 }
 
-const pumpColors = [
-  '#00B8D4',
-  '#43A047',
-  '#F4511E',
-  '#6A1B9A',
-  '#AF3E3E',
-  '#F564A9'
-];
 const suctionColors = [
   '#FF6B35',
   '#4ECDC4',
@@ -112,7 +105,7 @@ export const NpshCurveChart: React.FC<NpshCurveChartProps> = ({
       const pump = pumpData[index];
       const pumpName =
         `${pump.brand || ''} ${pump.model || ''}`.trim() || `${pump.name}`;
-      const baseColor = pumpColors[index % pumpColors.length];
+      const baseColor = getPumpColor(index);
       const labelPrefix = isModified
         ? `${pumpName} NPSHr (Modified)`
         : `${pumpName} NPSHr`;
