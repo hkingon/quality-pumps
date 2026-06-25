@@ -1,5 +1,5 @@
 # Quality Pumps Australia
-
+ 
 A full-stack web application for **Quality Pumps Australia** — a pump supplier and service company. The platform combines a public-facing company website with a private engineering dashboard featuring a suite of hydrology and pump engineering tools.
 
 ## Features
