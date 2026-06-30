@@ -39,7 +39,9 @@ import {
   IconCreditCard,
   IconLogout,
   IconPhotoUp,
-  IconUserCircle
+  IconUserCircle,
+  IconLogin,
+  IconUserPlus
 } from '@tabler/icons-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -211,30 +213,13 @@ export default function AppSidebar() {
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton
-                  size='lg'
-                  className='data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground'
-                >
-                  {profile && (
-                    <UserAvatarProfile
-                      className='h-8 w-8 rounded-lg'
-                      showInfo
-                      user={profile}
-                    />
-                  )}
-                  <IconChevronsDown className='ml-auto size-4' />
-                </SidebarMenuButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                className='w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg'
-                side='bottom'
-                align='end'
-                sideOffset={4}
-              >
-                {/* <DropdownMenuLabel className='p-0 font-normal'>
-                  <div className='px-1 py-1.5'>
+            {user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <SidebarMenuButton
+                    size='lg'
+                    className='data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground'
+                  >
                     {profile && (
                       <UserAvatarProfile
                         className='h-8 w-8 rounded-lg'
@@ -242,31 +227,39 @@ export default function AppSidebar() {
                         user={profile}
                       />
                     )}
-                    {profile && (
-                      <div className="mt-2 px-2">
-                        <div className="font-medium">{profile.full_name}</div>
-                        <div className="text-xs text-muted-foreground">{profile.email}</div>
-                        <div className="text-xs text-muted-foreground capitalize">{profile.role}</div>
-                      </div>
-                    )}
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator /> */}
-                {/* <DropdownMenuGroup>
-                  <DropdownMenuItem
-                    onClick={() => router.push('/dashboard/profile')}
-                  >
-                    <IconUserCircle className='mr-2 h-4 w-4' />
-                    Profile
+                    <IconChevronsDown className='ml-auto size-4' />
+                  </SidebarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  className='w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg'
+                  side='bottom'
+                  align='end'
+                  sideOffset={4}
+                >
+                  <DropdownMenuItem onClick={handleSignOut}>
+                    <IconLogout className='mr-2 h-4 w-4' />
+                    Sign Out
                   </DropdownMenuItem>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator /> */}
-                <DropdownMenuItem onClick={handleSignOut}>
-                  <IconLogout className='mr-2 h-4 w-4' />
-                  Sign Out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <div className='flex flex-col gap-1 px-1 py-2'>
+                <SidebarMenuButton
+                  className='cursor-pointer'
+                  onClick={() => router.push('/auth/sign-up')}
+                >
+                  <IconUserPlus className='h-4 w-4' />
+                  <span>Create Free Account</span>
+                </SidebarMenuButton>
+                <SidebarMenuButton
+                  className='cursor-pointer'
+                  onClick={() => router.push('/auth/sign-in')}
+                >
+                  <IconLogin className='h-4 w-4' />
+                  <span>Sign In</span>
+                </SidebarMenuButton>
+              </div>
+            )}
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

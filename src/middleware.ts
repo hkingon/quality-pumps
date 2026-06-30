@@ -34,6 +34,8 @@ export async function middleware(request: NextRequest) {
     '/auth/sign-up',
     '/auth/forgot-password'
   ];
+  // Routes under /dashboard that guests can access without signing in
+  const publicDashboardRoutes = ['/dashboard/pump-curve'];
 
   const isProtectedRoute = protectedRoutes.some((route) =>
     request.nextUrl.pathname.startsWith(route)
@@ -41,13 +43,20 @@ export async function middleware(request: NextRequest) {
   const isAuthRoute = authRoutes.some((route) =>
     request.nextUrl.pathname.startsWith(route)
   );
+  const isPublicDashboardRoute = publicDashboardRoutes.some(
+    (route) =>
+      request.nextUrl.pathname === route ||
+      request.nextUrl.pathname.startsWith(route + '/')
+  );
 
   if (user && isAuthRoute) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  if (!user && isProtectedRoute) {
-    return NextResponse.redirect(new URL('/auth/sign-in', request.url));
+  if (!user && isProtectedRoute && !isPublicDashboardRoute) {
+    const url = new URL('/access-required', request.url);
+    url.searchParams.set('from', request.nextUrl.pathname);
+    return NextResponse.redirect(url);
   }
 
   return supabaseResponse;

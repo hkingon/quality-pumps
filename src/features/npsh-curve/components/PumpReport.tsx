@@ -33,6 +33,8 @@ interface PumpReportProps {
   dischargeChartProps: React.ComponentProps<typeof DischargeCurveChart>;
   npshChartProps: React.ComponentProps<typeof NpshCurveChart>;
   onClose: () => void;
+  isGuest?: boolean;
+  onSignUpClick?: () => void;
 }
 
 const NA = 'Not Provided';
@@ -144,7 +146,9 @@ export function PumpReport({
   pAbsBestPerDuty,
   dischargeChartProps,
   npshChartProps,
-  onClose
+  onClose,
+  isGuest = false,
+  onSignUpClick
 }: PumpReportProps) {
   const today = new Date().toLocaleDateString('en-AU', {
     day: 'numeric',
@@ -400,13 +404,29 @@ export function PumpReport({
       ]
     : [];
 
+  // Blurs a result value for guests; clicking opens the sign-up dialog
+  const BlurredValue = ({ children }: { children: React.ReactNode }) => {
+    if (!isGuest) return <>{children}</>;
+    return (
+      <span
+        className='inline-block cursor-pointer select-none blur-sm'
+        onClick={() => onSignUpClick?.()}
+        title='Create a free account to view this'
+      >
+        {children}
+      </span>
+    );
+  };
+
   const Th = ({ children }: { children: React.ReactNode }) => (
     <th className='border border-gray-300 bg-sky-700 p-2 text-left text-white'>{children}</th>
   );
   const Row = ({ label, value, i }: { label: string; value: string; i: number }) => (
     <tr className={i % 2 ? 'bg-sky-50' : ''}>
       <td className='border border-gray-300 p-2 font-medium'>{label}</td>
-      <td className='border border-gray-300 p-2'>{value}</td>
+      <td className='border border-gray-300 p-2'>
+        <BlurredValue>{value}</BlurredValue>
+      </td>
     </tr>
   );
 
@@ -448,24 +468,45 @@ export function PumpReport({
       <div className='pump-report-no-print bg-background sticky top-0 z-10 flex items-center justify-between border-b p-3'>
         <span className='font-semibold'>Pump Selection Detailed Report</span>
         <div className='flex items-center gap-3'>
-          <label className='text-muted-foreground flex items-center gap-1 text-sm'>
-            Electricity $/kWh
-            <Input
-              value={electricityPrice}
-              onChange={(e) => setElectricityPrice(e.target.value)}
-              className='h-8 w-20'
-            />
-          </label>
-          <Button onClick={() => window.print()} className='cursor-pointer'>
-            <Printer className='mr-2 h-4 w-4' />
-            Print / Save as PDF
-          </Button>
+          {!isGuest && (
+            <label className='text-muted-foreground flex items-center gap-1 text-sm'>
+              Electricity $/kWh
+              <Input
+                value={electricityPrice}
+                onChange={(e) => setElectricityPrice(e.target.value)}
+                className='h-8 w-20'
+              />
+            </label>
+          )}
+          {isGuest ? (
+            <Button onClick={onSignUpClick} className='cursor-pointer'>
+              <Printer className='mr-2 h-4 w-4' />
+              Sign Up to Print
+            </Button>
+          ) : (
+            <Button onClick={() => window.print()} className='cursor-pointer'>
+              <Printer className='mr-2 h-4 w-4' />
+              Print / Save as PDF
+            </Button>
+          )}
           <Button variant='outline' onClick={onClose} className='cursor-pointer'>
             <X className='mr-2 h-4 w-4' />
             Close
           </Button>
         </div>
       </div>
+
+      {/* Guest unlock banner */}
+      {isGuest && (
+        <div className='pump-report-no-print sticky top-[57px] z-10 flex items-center justify-between border-b border-blue-200 bg-blue-50 px-4 py-2 text-sm'>
+          <span className='text-blue-800'>
+            🔒 Create a free account to unlock the full report — analysis values are blurred below.
+          </span>
+          <Button size='sm' className='ml-4 shrink-0' onClick={onSignUpClick}>
+            Create Free Account
+          </Button>
+        </div>
+      )}
 
       <div
         id='pump-report-printable'
@@ -497,7 +538,9 @@ export function PumpReport({
             {tiles.map((t) => (
               <div key={t.label} className='rounded-lg border bg-gray-50 p-3'>
                 <p className='text-xs text-gray-500'>{t.label}</p>
-                <p className='text-lg font-bold text-sky-800'>{t.value}</p>
+                <p className='text-lg font-bold text-sky-800'>
+                  <BlurredValue>{t.value}</BlurredValue>
+                </p>
               </div>
             ))}
           </div>
@@ -564,12 +607,20 @@ export function PumpReport({
                   <td className='border border-gray-300 p-2'>{d.name}</td>
                   <td className='border border-gray-300 p-2'>{dutyStr(d.reqFlow, d.reqHead)}</td>
                   <td className='border border-gray-300 p-2'>
-                    {d.capable ? dutyStr(d.actFlow, d.actHead) : 'Not capable'}
+                    <BlurredValue>{d.capable ? dutyStr(d.actFlow, d.actHead) : 'Not capable'}</BlurredValue>
                   </td>
-                  <td className='border border-gray-300 p-2'>{d.capable ? `${signed(d.flowMargin)}%` : '—'}</td>
-                  <td className='border border-gray-300 p-2'>{d.capable ? `${signed(d.headMargin)}%` : '—'}</td>
-                  <td className='border border-gray-300 p-2'>{d.result}</td>
-                  <td className='border border-gray-300 p-2'>{num(d.score, 0)}</td>
+                  <td className='border border-gray-300 p-2'>
+                    <BlurredValue>{d.capable ? `${signed(d.flowMargin)}%` : '—'}</BlurredValue>
+                  </td>
+                  <td className='border border-gray-300 p-2'>
+                    <BlurredValue>{d.capable ? `${signed(d.headMargin)}%` : '—'}</BlurredValue>
+                  </td>
+                  <td className='border border-gray-300 p-2'>
+                    <BlurredValue>{d.result}</BlurredValue>
+                  </td>
+                  <td className='border border-gray-300 p-2'>
+                    <BlurredValue>{num(d.score, 0)}</BlurredValue>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -666,9 +717,13 @@ export function PumpReport({
                   <div key={b.item} className='flex items-center gap-2 text-sm'>
                     <span className='w-48 shrink-0 text-right'>{b.item}</span>
                     <div className='h-4 flex-1 rounded bg-gray-100'>
-                      <div className='h-4 rounded bg-sky-500' style={{ width: `${pct}%` }} />
+                      <BlurredValue>
+                        <div className='h-4 rounded bg-sky-500' style={{ width: `${pct}%` }} />
+                      </BlurredValue>
                     </div>
-                    <span className='w-12 text-right'>{num(pct, 0)}%</span>
+                    <span className='w-12 text-right'>
+                      <BlurredValue>{num(pct, 0)}%</BlurredValue>
+                    </span>
                   </div>
                 );
               })}
