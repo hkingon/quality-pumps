@@ -2113,6 +2113,9 @@ export function PumpCurveDashboard() {
                 headUnit={headUnit}
                 segmentedNpshCurves={segmentedNpshCurves}
                 segmentedModifiedNpshCurves={segmentedModifiedNpshCurves}
+                operatingFlows={activeSavedPumps.map(
+                  (p) => activePumpMetrics[p.id]?.dutyFlow ?? 0
+                )}
               />
             </div>
           </Card>
