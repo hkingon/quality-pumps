@@ -12,8 +12,8 @@ export function GuestBanner() {
   if (dismissed) return null;
 
   return (
-    <div className='flex items-center justify-between rounded-md border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm'>
-      <div className='flex items-center gap-2 text-blue-800'>
+    <div className='bg-muted flex items-center justify-between rounded-md border px-4 py-2.5 text-sm'>
+      <div className='text-muted-foreground flex items-center gap-2'>
         <UserPlus className='h-4 w-4 shrink-0' />
         <span>
           You&apos;re using the Pump Curve Generator as a guest. Sign up to save
@@ -29,7 +29,7 @@ export function GuestBanner() {
           Create Free Account
         </Button>
         <button
-          className='text-blue-500 hover:text-blue-700'
+          className='text-muted-foreground hover:text-foreground transition-colors'
           onClick={() => setDismissed(true)}
           aria-label='Dismiss'
         >

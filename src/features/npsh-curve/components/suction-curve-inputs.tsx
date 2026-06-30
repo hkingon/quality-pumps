@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import type { SuctionCurveData, SystemCurveComponent } from '@/types';
-import { Check, Edit2, Trash, X, Plus, ChevronDown, ChevronUp } from 'lucide-react';
+import { Check, Edit2, Trash, X, Plus, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import { useState } from 'react';
 import { FrictionLossModal } from '@/features/friction-loss-calc/components/FrictionLossModal';
 import { FlowUnit, HeadUnit } from '@/lib/units';
@@ -22,6 +22,8 @@ interface SuctionCurveInputsProps {
   globalHeadUnit: HeadUnit;
   onGlobalFlowUnitChange: (unit: FlowUnit) => void;
   onGlobalHeadUnitChange: (unit: HeadUnit) => void;
+  isGuest?: boolean;
+  onGuestSignUp?: () => void;
 }
 
 export function SuctionCurveInputs({
@@ -32,7 +34,9 @@ export function SuctionCurveInputs({
   globalFlowUnit,
   globalHeadUnit,
   onGlobalFlowUnitChange,
-  onGlobalHeadUnitChange
+  onGlobalHeadUnitChange,
+  isGuest = false,
+  onGuestSignUp
 }: SuctionCurveInputsProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(
@@ -72,83 +76,15 @@ export function SuctionCurveInputs({
       newComponents.push(component);
     }
 
-    // Aggregation for Suction:
-    // Total Static Pressure = 10.1325 + Sum(Static Heads [which are actually pressures?]) ? 
-    // The Modal returns "calculatedHead" for Suction as (10.1325 + Static - Friction - Velocity).
-    // But here we need to map back to SuctionCurveData fields:
-    // staticPressure (user typically enters 10.1325 or atmospheric + tank level)
-    // operatingFlow
-    // operatingNpsha (The result)
-
-    // If we have multiple components, e.g. pipe 1, pipe 2.
-    // Friction losses sum up.
-    // Static pressure usually refers to the SOURCE.
-    // So "Static Pressure" is just ONE value for the system, not sum of components?
-    // User might add "Pipe 1" (friction), "Pipe 2" (friction).
-    // And define "Static tank level".
-    // The drawing shows "Static Head: 25... + Static Head : 25".
-    // For DISCHARGE this implies lifting 25m then another 25m? Yes.
-    // For SUCTION, do we have multiple "static pressures"?
-    // Usually Suction is: Reservoir Surface -> Pump.
-    // There's only one relevant static difference.
-    // UNLESS it's a boosted system?
-    // Let's assume the components' 'staticHead' sums up (elevation changes).
-
-    // And for SuctionCurveData:
-    // staticPressure = Base (10.1325) + Sum(Component Static Heads)?
-    // operatingNpsha = staticPressure - Sum(Component Friction).
-
-    // Let's sum component static heads to get total Elevation Head available.
-    // Then correct for Atmospheric?
-    // Default static pressure is 10.1325.
-    // If components have static head (positive or negative), we sum them.
-
-    let totalElevationHead = 0;
-    let totalOpHead = 0; // This from component is "Resulting Head" (NPSHa for that segment?)
-    // Actually the modal calculated `10.1325 + static - friction`.
-    // Summing these doesn't make sense.
-
-    // We should probably just sum Friction and Static Geometric Heads.
-    // Modal returns:
-    // staticHead (input)
-    // operatingHead (calculated result) -> ignore for aggregation?
-    // We need FRICTION from the component.
-    // Friction = (10.1325 + static - operatingHead - velocity) ... messy inverse calc.
-
-    // Better strategy: The component data includes inputs.
-    // We can re-calculate friction here if needed, or trust `component.operatingHead`?
-    // Wait, for DISCHARGE, `operatingHead` = Static + Friction.
-    // So Friction = OperatingHead - Static.
-    // For SUCTION, Modal return `operatingHead` = 10.1325 + Static - Friction.
-    // So Friction = 10.1325 + Static - OperatingHead.
-
-    // Let's recalculate Totals:
     let totalStaticGeometric = 0;
-    let totalFriction = 0;
-
     newComponents.forEach(c => {
       totalStaticGeometric += c.staticHead || 0;
-      // Re-derive friction
-      const friction = (10.1325 + (c.staticHead || 0)) - (c.operatingHead || 0);
-      // Note: Modal calculated Velocity Head too. 
-      // NPSHa = Static - Friction - Velocity.
-      // We probably want to sum Friction?
-      // Let's rely on `curve-dashboard` to do the heavy lifting curve generation.
-      // Here just update summary fields.
     });
-
-    // For Summary:
-    // Static Pressure = 10.1325 + Total Static Geometric
-    // Operating NPSHa = Static Pressure - Total Friction (approx).
 
     updateSuctionCurve(suction.id, {
       components: newComponents,
       staticPressure: 10.1325 + totalStaticGeometric,
       operatingFlow: component.operatingFlow,
-      // We'll leave operatingNpsha user-editable or approx?
-      // Let's just sum the 'static' part for now and let user set NPSHa or let dashboard calc it.
-      // Actually, if we use components, we should probably ignore the manual "Operating NPSHa" in curve generation?
-      // But for UI feedback, let's leave it.
     });
     setIsModalOpen(false);
     setEditingComponentId(null);
@@ -157,6 +93,15 @@ export function SuctionCurveInputs({
   const removeComponent = (compId: string) => {
     const newComponents = (suction.components || []).filter(c => c.id !== compId);
     updateSuctionCurve(suction.id, { components: newComponents });
+  };
+
+  const handleAddPipeClick = () => {
+    if (isGuest) {
+      onGuestSignUp?.();
+      return;
+    }
+    setEditingComponentId(null);
+    setIsModalOpen(true);
   };
 
   const displayName = suction.name || `Suction Curve ${index + 1}`;
@@ -214,10 +159,10 @@ export function SuctionCurveInputs({
       {/* Components List */}
       {isExpanded && (
         <div className='flex gap-4 overflow-x-auto pb-4'>
-          {suction.components?.map((comp, i) => (
-            <Card key={comp.id} className='min-w-[200px] bg-slate-50 p-3'>
+          {suction.components?.map((comp) => (
+            <Card key={comp.id} className='bg-muted min-w-[200px] p-3'>
               <div className='mb-2 flex items-center justify-between'>
-                <span className='font-medium text-sm'>Suction Pipe</span>
+                <span className='text-sm font-medium'>Suction Pipe</span>
                 <div className='flex gap-1'>
                   <Button size='icon' variant='ghost' className='h-6 w-6' onClick={() => {
                     setEditingComponentId(comp.id);
@@ -225,7 +170,7 @@ export function SuctionCurveInputs({
                   }}>
                     <Edit2 className='h-3 w-3' />
                   </Button>
-                  <Button size='icon' variant='ghost' className='h-6 w-6 text-red-500' onClick={() => removeComponent(comp.id)}>
+                  <Button size='icon' variant='ghost' className='text-destructive h-6 w-6' onClick={() => removeComponent(comp.id)}>
                     <Trash className='h-3 w-3' />
                   </Button>
                 </div>
@@ -248,15 +193,24 @@ export function SuctionCurveInputs({
             </Card>
           ))}
 
+          {/* Add Pipe / Sign-up gate */}
           <div
-            className='flex min-w-[120px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-4 hover:bg-gray-100'
-            onClick={() => {
-              setEditingComponentId(null);
-              setIsModalOpen(true);
-            }}
+            className='border-muted-foreground/30 bg-muted/40 hover:bg-muted/70 flex min-w-[130px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-4 transition-colors'
+            onClick={handleAddPipeClick}
           >
-            <Plus className='mb-2 h-8 w-8 text-gray-400' />
-            <span className='font-medium text-gray-500'>Add Pipe</span>
+            {isGuest ? (
+              <>
+                <Lock className='text-muted-foreground mb-2 h-8 w-8' />
+                <span className='text-muted-foreground text-center text-xs font-medium leading-tight'>
+                  Sign up to add pipe
+                </span>
+              </>
+            ) : (
+              <>
+                <Plus className='text-muted-foreground mb-2 h-8 w-8' />
+                <span className='text-muted-foreground font-medium'>Add Pipe</span>
+              </>
+            )}
           </div>
         </div>
       )}

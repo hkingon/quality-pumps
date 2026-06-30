@@ -22,6 +22,8 @@ interface SystemCurveInputsProps {
   globalHeadUnit: HeadUnit;
   onGlobalFlowUnitChange: (unit: FlowUnit) => void;
   onGlobalHeadUnitChange: (unit: HeadUnit) => void;
+  isGuest?: boolean;
+  onGuestSignUp?: () => void;
 }
 
 export function SystemCurveInputs({
@@ -32,7 +34,9 @@ export function SystemCurveInputs({
   globalFlowUnit,
   globalHeadUnit,
   onGlobalFlowUnitChange,
-  onGlobalHeadUnitChange
+  onGlobalHeadUnitChange,
+  isGuest = false,
+  onGuestSignUp
 }: SystemCurveInputsProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(
@@ -213,12 +217,18 @@ export function SystemCurveInputs({
           <div
             className='flex min-w-[120px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/30 p-4 hover:bg-muted/50'
             onClick={() => {
+              if (isGuest) {
+                onGuestSignUp?.();
+                return;
+              }
               setEditingComponentId(null);
               setIsModalOpen(true);
             }}
           >
             <Plus className='mb-2 h-8 w-8 text-muted-foreground' />
-            <span className='font-medium text-muted-foreground'>Add Pipe</span>
+            <span className='font-medium text-muted-foreground'>
+              {isGuest ? 'Sign up to add pipe' : 'Add Pipe'}
+            </span>
           </div>
         </div>
       )}

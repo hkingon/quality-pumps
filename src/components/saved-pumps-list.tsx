@@ -55,6 +55,9 @@ interface SavedPumpsListProps {
   /** When provided, the authoritative set of pump ids currently on the chart
    *  (driven by the dashboard) so card removals stay in sync with this list. */
   activePumpIds?: string[];
+  /** When true, clicking a pump name shows the sign-up prompt instead of opening pump curves. */
+  isGuest?: boolean;
+  onGuestClick?: () => void;
 }
 
 export function SavedPumpsList({
@@ -69,7 +72,9 @@ export function SavedPumpsList({
   flowUnit,
   dischargeCurveMode = 'or',
   numberOfDutyPumps = 1,
-  activePumpIds
+  activePumpIds,
+  isGuest = false,
+  onGuestClick
 }: SavedPumpsListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [pumpsOnChart, setPumpsOnChart] = useState<string[]>([]);
@@ -412,6 +417,10 @@ export function SavedPumpsList({
   ]);
 
   const handleViewPump = (pumpId: string): void => {
+    if (isGuest) {
+      onGuestClick?.();
+      return;
+    }
     setSelectedPumpId(pumpId);
     setIsDetailsModalOpen(true);
   };
@@ -790,7 +799,7 @@ export function SavedPumpsList({
                         </button>
                       </TooltipTrigger>
                       <TooltipContent side='right' align='center'>
-                        View pump curves
+                        {isGuest ? 'Sign up to view pump curves' : 'View pump curves'}
                       </TooltipContent>
                     </Tooltip>
                     <div className='flex flex-wrap items-center gap-x-3 gap-y-0.5 text-muted-foreground text-xs mt-0.5'>

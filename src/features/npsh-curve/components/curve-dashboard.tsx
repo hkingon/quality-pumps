@@ -1961,6 +1961,8 @@ export function PumpCurveDashboard() {
                       globalHeadUnit={headUnit}
                       onGlobalFlowUnitChange={handleFlowUnitChange}
                       onGlobalHeadUnitChange={handleHeadUnitChange}
+                      isGuest={!user}
+                      onGuestSignUp={() => setShowGuestSignupDialog(true)}
                     />
                   ))}
                 {showDischargeSystemCurve && (
@@ -2000,6 +2002,8 @@ export function PumpCurveDashboard() {
                       globalHeadUnit={headUnit}
                       onGlobalFlowUnitChange={handleFlowUnitChange}
                       onGlobalHeadUnitChange={handleHeadUnitChange}
+                      isGuest={!user}
+                      onGuestSignUp={() => setShowGuestSignupDialog(true)}
                     />
                   ))}
                 {showSuctionCurve && (
@@ -2220,6 +2224,8 @@ export function PumpCurveDashboard() {
             dischargeCurveMode={dischargeCurveMode}
             numberOfDutyPumps={numberOfDutyPumps}
             activePumpIds={activeSavedPumps.map((p) => p.id)}
+            isGuest={!user}
+            onGuestClick={() => setShowGuestSignupDialog(true)}
           />
         </Card>
       </div>
