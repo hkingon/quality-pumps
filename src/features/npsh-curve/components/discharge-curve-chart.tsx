@@ -17,6 +17,7 @@ import { PumpData, SystemCurveData } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { get } from 'http';
 import { getPumpColor } from '@/lib/pump-colors';
+import { pchipSample, polyRegress2Sample } from '@/lib/curve-fitting';
 
 ChartJS.register(
   LineElement,
@@ -180,7 +181,7 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
           borderWidth: 2,
           pointRadius: 0,
           fill: false,
-          tension: 0.4,
+          tension: 0,
           // Apply opacity by modifying the color
           borderColor:
             opacity < 1
@@ -269,28 +270,29 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
           : 1;
         const powerMultiplier = Math.pow(speedRatio, 3); // Power ∝ Speed³
 
-        // Apply affinity laws to motor power data
-        const sortedData = [...pump.motor_power]
+        // Apply affinity laws to motor power data, then PCHIP smooth
+        const scaledPower = [...pump.motor_power]
           .map((point) => ({
-            flow: point.flow * speedRatio, // Flow ∝ Speed
-            kw: point.kw * powerMultiplier // Power ∝ Speed³
+            flow: point.flow * speedRatio,
+            kw: point.kw * powerMultiplier
           }))
           .sort((a, b) => a.flow - b.flow);
 
-        // Create the dataset
+        const fittedPower =
+          scaledPower.length >= 2
+            ? pchipSample(scaledPower.map(p => ({ x: p.flow, y: p.kw })))
+            : scaledPower.map(p => ({ x: p.flow, y: p.kw }));
+
         datasets.push({
           label: `${pump.name} (Power${speedRatio !== 1 ? ` @ ${(speedRatio * 100).toFixed(0)}%` : ''})`,
-          data: sortedData.map((point) => ({
-            x: point.flow,
-            y: point.kw
-          })),
+          data: fittedPower.map(p => ({ x: p.x, y: p.y })),
           borderColor: getPumpColor(index),
           borderWidth: 2,
           pointRadius: 0,
           fill: false,
-          tension: 0.4,
+          tension: 0,
           yAxisID: 'y1',
-          borderDash: speedRatio !== 1 ? [5, 5] : [], // Dashed line for adjusted speed
+          borderDash: speedRatio !== 1 ? [5, 5] : [],
           backgroundColor:
             speedRatio !== 1
               ? motorPowerColors[index % motorPowerColors.length] + '50'
@@ -299,25 +301,26 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
 
         // Optionally show the original curve as reference when speed is adjusted
         if (speedRatio !== 1) {
-          const originalData = [...pump.motor_power].sort(
+          const originalPower = [...pump.motor_power].sort(
             (a, b) => a.flow - b.flow
           );
+          const fittedOriginalPower =
+            originalPower.length >= 2
+              ? pchipSample(originalPower.map(p => ({ x: p.flow, y: p.kw })))
+              : originalPower.map(p => ({ x: p.flow, y: p.kw }));
 
           datasets.push({
             label: `${pump.name} (Power @ 100% - Reference)`,
-            data: originalData.map((point) => ({
-              x: point.flow,
-              y: point.kw
-            })),
+            data: fittedOriginalPower.map(p => ({ x: p.x, y: p.y })),
             borderColor: getPumpColor(index),
             borderWidth: 1,
             pointRadius: 0,
             fill: false,
-            tension: 0.4,
+            tension: 0,
             yAxisID: 'y1',
-            borderDash: [2, 2], // Dotted for reference
+            borderDash: [2, 2],
             backgroundColor: 'transparent',
-            hidden: false // Show by default, user can toggle in legend
+            hidden: false
           });
         }
       }
@@ -335,26 +338,30 @@ export const DischargeCurveChart: React.FC<DischargeCurveChartProps> = ({
           ? pump.currentRpm! / pump.baseRpm!
           : 1;
 
-        // Efficiency curve shape remains the same, but flow values shift
-        const processedData = pump.efficiency
+        // Efficiency curve — flow shifts with speed, shape fitted via 2nd-degree polynomial regression
+        const scaledEff = pump.efficiency
           .map((point) => ({
-            flow: parseFloat(point.flow) * speedRatio, // Adjust flow
-            efficiency: parseFloat(point.eff) // Efficiency unchanged
+            flow: parseFloat(point.flow) * speedRatio,
+            efficiency: parseFloat(point.eff)
           }))
           .filter((point) => !isNaN(point.flow) && !isNaN(point.efficiency))
           .sort((a, b) => a.flow - b.flow);
 
+        const fittedEff =
+          scaledEff.length >= 2
+            ? polyRegress2Sample(
+                scaledEff.map(p => ({ x: p.flow, y: p.efficiency }))
+              )
+            : scaledEff.map(p => ({ x: p.flow, y: p.efficiency }));
+
         datasets.push({
           label: `${pump.name} (Efficiency${speedRatio !== 1 ? ` @ ${(speedRatio * 100).toFixed(0)}%` : ''})`,
-          data: processedData.map((point) => ({
-            x: point.flow,
-            y: point.efficiency
-          })),
+          data: fittedEff.map(p => ({ x: p.x, y: p.y })),
           borderColor: getPumpColor(index),
           borderWidth: 2,
           pointRadius: 0,
           fill: false,
-          tension: 0.4,
+          tension: 0,
           yAxisID: 'y1',
           borderDash: speedRatio !== 1 ? [5, 5] : []
         });

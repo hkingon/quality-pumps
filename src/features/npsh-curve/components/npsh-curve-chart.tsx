@@ -355,7 +355,7 @@ export const NpshCurveChart: React.FC<NpshCurveChartProps> = ({
           borderWidth: 2,
           pointRadius: 0,
           fill: false,
-          tension: 0.4,
+          tension: 0,
           globalAlpha: opacity
         });
       }
@@ -368,7 +368,7 @@ export const NpshCurveChart: React.FC<NpshCurveChartProps> = ({
           borderWidth: 3,
           pointRadius: 0,
           fill: false,
-          tension: 0.4,
+          tension: 0,
           globalAlpha: opacity
         });
       }
@@ -381,7 +381,7 @@ export const NpshCurveChart: React.FC<NpshCurveChartProps> = ({
           borderWidth: 2,
           pointRadius: 0,
           fill: false,
-          tension: 0.4,
+          tension: 0,
           globalAlpha: opacity
         });
       }
@@ -400,7 +400,7 @@ export const NpshCurveChart: React.FC<NpshCurveChartProps> = ({
         borderWidth: 2.5,
         pointRadius: 0,
         fill: false,
-        tension: 0.4,
+        tension: 0,
         borderDash: [8, 4]
       });
     });

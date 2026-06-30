@@ -22,6 +22,7 @@ import type {
 import jsPDF from 'jspdf';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { FlowUnit, HeadUnit, convertFlow, convertHead } from '@/lib/units';
+import { pchipSample } from '@/lib/curve-fitting';
 import {
   Select,
   SelectContent,
@@ -1007,6 +1008,18 @@ export function PumpCurveDashboard() {
 
         pumpPoints.sort((a, b) => a.flow - b.flow);
         combinedPumpPoints.sort((a, b) => a.flow - b.flow);
+
+        // Apply PCHIP to generate 300 smooth points from the user's data
+        if (pumpPoints.length >= 2) {
+          const fitted = pchipSample(
+            pumpPoints.map(p => ({ x: p.flow, y: p.head }))
+          );
+          pumpPoints = fitted.map(p => ({ flow: p.x, head: p.y }));
+          combinedPumpPoints = fitted.map(p => ({
+            flow: p.x * numberOfDutyPumps,
+            head: p.y
+          }));
+        }
       } else {
         // Generate standard pump curve
         const numPoints = 100;
@@ -1092,6 +1105,14 @@ export function PumpCurveDashboard() {
           head: convertHead(point.head * speedRatio ** 2, 'm', headUnit)
         }));
         npshPoints.sort((a, b) => a.flow - b.flow);
+
+        // Apply PCHIP to generate 300 smooth NPSHr points
+        if (npshPoints.length >= 2) {
+          const fittedNpsh = pchipSample(
+            npshPoints.map(p => ({ x: p.flow, y: p.head }))
+          );
+          npshPoints = fittedNpsh.map(p => ({ flow: p.x, head: p.y }));
+        }
 
         // For NPSHr, BEP is at minimum NPSH (often but not always)
         let minNpshReq = Infinity;
