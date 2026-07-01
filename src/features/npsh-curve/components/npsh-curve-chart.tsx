@@ -250,6 +250,9 @@ export const NpshCurveChart: React.FC<NpshCurveChartProps> = ({
   const cavDataRef = useRef<CavInfo[]>([]);
   cavDataRef.current = cavitationData;
 
+  const headUnitRef = useRef(headUnit);
+  headUnitRef.current = headUnit;
+
   const cavitationPlugin = useRef({
     id: 'npshCavitation',
     afterDraw(chart: any) {
@@ -317,6 +320,76 @@ export const NpshCurveChart: React.FC<NpshCurveChartProps> = ({
 
           ctx.closePath();
           ctx.fill();
+        }
+
+        // ------------------------------------------------------------------
+        // NPSH margin indicator — double-headed arrow at operating flow
+        // showing the gap between NPSHa and NPSHr
+        // ------------------------------------------------------------------
+        if (info.npshaPoints.length > 0 && info.npshrPts.length > 0) {
+          const npshrAtOp = lerpAt(info.npshrPts, info.operatingFlow);
+          const npshaAtOp = lerpAt(info.npshaPoints, info.operatingFlow);
+          const margin = npshaAtOp - npshrAtOp;
+
+          const npshrYPx = scales.y.getPixelForValue(npshrAtOp);
+          const npshaYPx = scales.y.getPixelForValue(npshaAtOp);
+          const gapPx = Math.abs(npshrYPx - npshaYPx);
+
+          if (gapPx >= 8) {
+            const topY = Math.min(npshrYPx, npshaYPx);
+            const botY = Math.max(npshrYPx, npshaYPx);
+            const midY = (topY + botY) / 2;
+            const markerX = opXPx + 16;
+            const markerColor =
+              margin >= 0
+                ? 'rgba(22, 163, 74, 0.95)'
+                : 'rgba(220, 38, 38, 0.95)';
+            const ah = 7; // arrowhead height px
+            const aw = 4; // arrowhead half-width px
+
+            // Vertical shaft
+            ctx.beginPath();
+            ctx.strokeStyle = markerColor;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([]);
+            ctx.moveTo(markerX, topY + ah);
+            ctx.lineTo(markerX, botY - ah);
+            ctx.stroke();
+
+            // Upper arrowhead (pointing toward NPSHa)
+            ctx.beginPath();
+            ctx.fillStyle = markerColor;
+            ctx.moveTo(markerX, topY);
+            ctx.lineTo(markerX - aw, topY + ah);
+            ctx.lineTo(markerX + aw, topY + ah);
+            ctx.closePath();
+            ctx.fill();
+
+            // Lower arrowhead (pointing toward NPSHr)
+            ctx.beginPath();
+            ctx.fillStyle = markerColor;
+            ctx.moveTo(markerX, botY);
+            ctx.lineTo(markerX - aw, botY - ah);
+            ctx.lineTo(markerX + aw, botY - ah);
+            ctx.closePath();
+            ctx.fill();
+
+            // Margin label
+            const labelText = `${Math.abs(margin).toFixed(2)} ${headUnitRef.current}`;
+            ctx.font = 'bold 11px sans-serif';
+            ctx.fillStyle = markerColor;
+            ctx.textBaseline = 'middle';
+
+            const textWidth = ctx.measureText(labelText).width;
+            const textX = markerX + 8;
+            if (textX + textWidth > chartArea.right - 4) {
+              ctx.textAlign = 'right';
+              ctx.fillText(labelText, markerX - 10, midY);
+            } else {
+              ctx.textAlign = 'left';
+              ctx.fillText(labelText, textX, midY);
+            }
+          }
         }
       }
 
