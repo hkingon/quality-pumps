@@ -2139,7 +2139,7 @@ export function PumpCurveDashboard() {
                 bepPoints={bepPoints}
                 modifiedBepPoints={modifiedBepPoints}
                 overallMaxHead={overallMaxHead}
-                overallMaxFlow={overallMaxFlowDischarge}
+                overallMaxFlow={Math.max(overallMaxFlowDischarge, overallMaxFlowNpsh)}
                 flowUnit={flowUnit}
                 headUnit={headUnit}
                 segmentedPumpCurves={segmentedPumpCurves}
@@ -2171,7 +2171,7 @@ export function PumpCurveDashboard() {
                 modifiedNpshBepPoints={modifiedNpshBepPoints}
                 overallMaxNpsh={overallMaxNpsh}
                 overallMinNpsh={overallMinNpsh}
-                overallMaxFlow={overallMaxFlowNpsh}
+                overallMaxFlow={Math.max(overallMaxFlowDischarge, overallMaxFlowNpsh)}
                 flowUnit={flowUnit}
                 headUnit={headUnit}
                 segmentedNpshCurves={segmentedNpshCurves}
@@ -2267,7 +2267,7 @@ export function PumpCurveDashboard() {
             bepPoints: bepPoints[idx] ? [bepPoints[idx]] : [],
             modifiedBepPoints: modifiedBepPoints[idx] ? [modifiedBepPoints[idx]] : [],
             overallMaxHead,
-            overallMaxFlow: overallMaxFlowDischarge,
+            overallMaxFlow: Math.max(overallMaxFlowDischarge, overallMaxFlowNpsh),
             flowUnit,
             headUnit,
             segmentedPumpCurves: segmentedPumpCurves[idx] ? [segmentedPumpCurves[idx]] : [],
@@ -2290,7 +2290,7 @@ export function PumpCurveDashboard() {
               : [],
             overallMaxNpsh,
             overallMinNpsh,
-            overallMaxFlow: overallMaxFlowNpsh,
+            overallMaxFlow: Math.max(overallMaxFlowDischarge, overallMaxFlowNpsh),
             flowUnit,
             headUnit,
             segmentedNpshCurves: segmentedNpshCurves[idx] ? [segmentedNpshCurves[idx]] : [],
