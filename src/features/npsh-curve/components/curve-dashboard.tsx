@@ -2260,6 +2260,7 @@ export function PumpCurveDashboard() {
           const speedRatio = c && c.baseRpm ? c.currentRpm / c.baseRpm : 1;
 
           // Single-pump slices of the dashboard's per-pump chart arrays.
+          // Report shows one pump at a time, so use individual pump max flow (not combined).
           const dischargeChartProps = {
             pumpData: [activeSavedPumps[idx]],
             dischargeSystemCurveData,
@@ -2267,7 +2268,7 @@ export function PumpCurveDashboard() {
             bepPoints: bepPoints[idx] ? [bepPoints[idx]] : [],
             modifiedBepPoints: modifiedBepPoints[idx] ? [modifiedBepPoints[idx]] : [],
             overallMaxHead,
-            overallMaxFlow: Math.max(overallMaxFlowDischarge, overallMaxFlowNpsh),
+            overallMaxFlow: overallMaxFlowNpsh,
             flowUnit,
             headUnit,
             segmentedPumpCurves: segmentedPumpCurves[idx] ? [segmentedPumpCurves[idx]] : [],
@@ -2290,7 +2291,7 @@ export function PumpCurveDashboard() {
               : [],
             overallMaxNpsh,
             overallMinNpsh,
-            overallMaxFlow: Math.max(overallMaxFlowDischarge, overallMaxFlowNpsh),
+            overallMaxFlow: overallMaxFlowNpsh,
             flowUnit,
             headUnit,
             segmentedNpshCurves: segmentedNpshCurves[idx] ? [segmentedNpshCurves[idx]] : [],
